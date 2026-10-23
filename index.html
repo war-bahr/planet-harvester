@@ -28,24 +28,36 @@ button *{pointer-events:none}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 6px currentColor}
 #galchip{min-width:52px;min-height:44px;background:#1a1347;border:1px solid #4b3aa8;border-radius:10px;padding:2px 9px;font-size:11px;color:#cfc4ff;display:flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.2;flex:0 0 auto}
 #galchip b{font-size:14px;color:#fff}
-#main{flex:1;display:flex;flex-direction:column;min-height:0}
+#main{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
 #view{position:relative;flex:1 1 44%;min-height:180px;overflow:hidden}
-#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;cursor:pointer}
-#side{flex:1 1 56%;display:flex;flex-direction:column;min-height:0;background:#080c20;border-top:1px solid #1d2552}
-#panel{flex:1;overflow-y:auto;touch-action:pan-y;padding:10px 10px 14px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-#tabs{display:flex;border-top:1px solid #1d2552;background:#0a0f28;padding-bottom:env(safe-area-inset-bottom)}
+#cv{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none;display:block;cursor:pointer}
+#side{flex:0 1 56%;display:flex;flex-direction:column;min-height:0;overflow:hidden;background:#080c20;border-top:1px solid #1d2552;transition:flex-basis .2s cubic-bezier(.25,.8,.3,1)}
+#panel{flex:1 1 0;min-height:0;overflow-y:auto;touch-action:pan-y;padding:10px 10px 14px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;transition:padding .2s cubic-bezier(.25,.8,.3,1)}
+#app.fs #side{flex-basis:calc(var(--tabsh,calc(57px + env(safe-area-inset-bottom))) + 1px)}
+#app.fs #panel{padding-top:0;padding-bottom:0;overflow:hidden}
+#app.notr #side,#app.notr #panel{transition:none}
+#tabs{flex:0 0 auto;display:flex;border-top:1px solid #1d2552;background:#0a0f28;padding-bottom:env(safe-area-inset-bottom)}
 #tabs button{flex:1;background:none;border:0;padding:8px 2px 7px;min-height:56px;color:#7f89bd;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
 #tabs button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 #tabs button.on{color:#fff}
 #tabs button.on::after{content:"";position:absolute;top:0;left:22%;right:22%;height:2px;background:#5f7bff;border-radius:2px}
 #tabs .badge{position:absolute;top:5px;right:calc(50% - 18px);width:9px;height:9px;border-radius:50%;background:#ff9f2e;box-shadow:0 0 6px #ff9f2e;display:none}
 #tabs .badge.show{display:block}
+#tabs .chev{display:none;position:absolute;top:9px;right:calc(50% + 14px);width:6px;height:6px;border-right:1.6px solid #8fa2ff;border-bottom:1.6px solid #8fa2ff;transform:rotate(45deg);opacity:.7;transition:transform .2s,opacity .2s}
+#tabs button.on .chev{display:block}
+#app.fs #tabs button.on .chev{transform:translateY(3px) rotate(-135deg);opacity:1;border-color:#c3ccff}
+#app.fs #tabs button.on::after{left:30%;right:30%;background:#9fb0ff}
 @media (min-width:860px) and (min-aspect-ratio:1/1){
   #main{flex-direction:row}
   #view{flex:1 1 auto}
   #side{flex:0 0 410px;border-top:0;border-left:1px solid #1d2552}
   #tabs{order:-1;border-top:0;border-bottom:1px solid #1d2552}
   #tabs button.on::after{top:auto;bottom:0}
+  #app.fs #side{position:absolute;top:0;right:0;width:410px;flex:none;border-left:0;border-bottom:1px solid #1d2552;border-bottom-left-radius:12px;background:rgba(8,12,32,.88);z-index:4}
+  #app.fs #panel{display:none}
+  #app.fs #tabs{border-bottom:0}
+  #app.fs #tabs button.on .chev{transform:translateY(-1px) rotate(45deg)}
+  #tabs button.on .chev{transform:translateY(3px) rotate(-135deg)}
   .res{flex:0 1 150px}
 }
 .card{background:#0f1636;border:1px solid #222d66;border-radius:12px;padding:10px;margin-bottom:8px}
@@ -187,7 +199,7 @@ function genGalaxy(seed,g){
 let S,P,GAL;
 function newState(){
   const now=Date.now();
-  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,tips:{},lastVer:7,colony:newColony(),raids:0,father:{},trophies:{},
+  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,fullscreen:false,tips:{},lastVer:7,colony:newColony(),raids:0,father:{},trophies:{},
     mods:{drill:0,drones:0,laser:0,engine:0,super:0},laserCharge:0,at:0,travel:null,outposts:{},clock:now,saved:now,created:now,buyMode:1,
     stats:{taps:0,trips:0,rocks:0,built:0,earned:{ore:0,crystal:0,gas:0,exotic:0},play:0},ach:{},seenAch:0,intro:false};
 }
@@ -197,7 +209,7 @@ function sanitize(o){
   const s={...d,...o};
   s.res={...d.res};for(const k of [...RES,'salvage'])s.res[k]=safe(+o.res[k]||0);
   s.combat={...d.combat};for(const k in d.combat)s.combat[k]=Math.max(0,Math.floor(+((o.combat||{})[k])||0));
-  s.raids=Math.max(0,Math.floor(+o.raids||0));s.lastVer=+o.lastVer||5;s.tips=(o.tips&&typeof o.tips==='object')?o.tips:{};s.sound=o.sound!==false;s.haptics=o.haptics!==false;s.autobuy=!!o.autobuy;if(!o.combat&&s.galaxy>=1){s.res.salvage+=Math.round(400*pw(1.6,s.galaxy));s.defenseGrant=true;}s.father=(o.father&&typeof o.father==='object')?o.father:{};s.trophies=(o.trophies&&typeof o.trophies==='object')?o.trophies:{};
+  s.raids=Math.max(0,Math.floor(+o.raids||0));s.lastVer=+o.lastVer||5;s.tips=(o.tips&&typeof o.tips==='object')?o.tips:{};s.sound=o.sound!==false;s.haptics=o.haptics!==false;s.autobuy=!!o.autobuy;s.fullscreen=o.fullscreen===true;if(!o.combat&&s.galaxy>=1){s.res.salvage+=Math.round(400*pw(1.6,s.galaxy));s.defenseGrant=true;}s.father=(o.father&&typeof o.father==='object')?o.father:{};s.trophies=(o.trophies&&typeof o.trophies==='object')?o.trophies:{};
   s.mods={...d.mods};for(const k in d.mods)s.mods[k]=Math.max(0,Math.floor(+o.mods[k]||0));
   s.stats={...d.stats,...(o.stats||{})};s.stats.earned={...d.stats.earned,...((o.stats||{}).earned||{})};
   s.galaxy=Math.max(0,Math.floor(+o.galaxy||0));s.seed=(+o.seed>>>0)||d.seed;
@@ -209,7 +221,7 @@ function sanitize(o){
   return s;
 }
 function load(){try{const raw=localStorage.getItem(SAVE_KEY);if(!raw)return null;return sanitize(JSON.parse(raw));}catch(e){console.warn('save load failed',e);return null;}}
-function save(){try{accrueOutposts(Date.now());S.saved=Date.now();localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){console.warn('save failed',e);}}
+function save(){try{accrueOutposts(Date.now());S.saved=Date.now();S.fullscreen=!!R.fs;localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){console.warn('save failed',e);}}
 function setWorld(){GAL=genGalaxy(S.seed,S.galaxy);P=GAL.planets;if(S.at<0||S.at>=P.length)S.at=0;for(const k in S.outposts)if(!P[k])delete S.outposts[k];texCache.clear();nebula=null;}
 
 /* ================= economy ================= */
@@ -368,8 +380,15 @@ function checkAch(){for(const [id,n,,f] of ACH)if(!S.ach[id]&&f()){S.ach[id]=Dat
 const $=s=>document.querySelector(s);
 const cv=$('#cv'),ctx=cv.getContext('2d'),view=$('#view');
 let W=1,H=1,DPR=1;
-function resize(){const r=view.getBoundingClientRect();DPR=Math.min(2,window.devicePixelRatio||1);W=Math.max(1,r.width);H=Math.max(1,r.height);cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);}
-const R={laserFx:0,tab:'station',sel:null,geo:null,warpFlash:0,evtT:75,showerUntil:0,nextRock:0,lastTapHint:0};
+// The canvas backing store is sized to the whole #main area (the full-screen size), so collapsing/expanding the panel only changes the
+// logical drawing area W×H (no per-frame reallocation or flicker during the slide). #view clips whatever lies below H.
+const mainEl=$('#main');
+function resize(){const r=view.getBoundingClientRect(),mr=mainEl.getBoundingClientRect();DPR=Math.min(2,window.devicePixelRatio||1);const oW=W,oH=H;W=Math.max(1,r.width);H=Math.max(1,r.height);
+  const cw=Math.max(W,mr.width),ch=Math.max(H,mr.height),bw=Math.round(cw*DPR),bh=Math.round(ch*DPR);
+  if(cv.width!==bw||cv.height!==bh){cv.width=bw;cv.height=bh;}const sw=cw+'px',shh=ch+'px';if(cv.style.width!==sw)cv.style.width=sw;if(cv.style.height!==shh)cv.style.height=shh;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  if(oW>1&&oH>1&&(oW!==W||oH!==H)&&typeof remapWorld==='function')remapWorld(oW,oH);}
+const R={fs:false,laserFx:0,tab:'station',sel:null,geo:null,warpFlash:0,evtT:75,showerUntil:0,nextRock:0,lastTapHint:0};
 const parts=[],floats=[],rocks=[];
 const texCache=new Map();let nebula=null;
 const STARS=[0,1,2].map(l=>{const r=mulberry(77+l);return Array.from({length:[110,55,22][l]},()=>({x:r(),y:r(),b:.25+r()*.75,tw:r()*TAU}));});
@@ -532,7 +551,7 @@ function drawFx(dt){
 cv.addEventListener('pointerdown',e=>{
   const b=cv.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top;
   if(R.tab==='colony'&&colonyViewOn()){colonyTap(x,y);return;}
-  if(R.tab==='map'){let best=null,bd=1e9;for(const p of P){const q=mapPos(p),d=Math.hypot(q.x-x,q.y-y);if(d<Math.max(26,mapR(p)+12)&&d<bd){bd=d;best=p.i;}}if(best!=null){R.sel=best;renderPanel();}return;}
+  if(R.tab==='map'){let best=null,bd=1e9;for(const p of P){const q=mapPos(p),d=Math.hypot(q.x-x,q.y-y);if(d<Math.max(26,mapR(p)+12)&&d<bd){bd=d;best=p.i;}}if(best!=null){R.sel=best;setFS(false);renderPanel();}return;}
   if(S.travel||!R.geo)return;
   if(laserOwned()){const g0=R.geo,ds=Math.hypot(g0.sx-x,g0.sy-y);if(ds<Math.max(34,g0.s*1.9)&&Math.hypot(g0.cx-x,g0.cy-y)>g0.R){const closer=C.enemies.some(e=>e.vis>.5&&Math.hypot(e.x-x,e.y-y)<Math.min(ds,Math.max(30,e.r*1.6)));if(!closer){stationTap();return;}}}
   if(combatTap(x,y))return;
@@ -619,6 +638,14 @@ function spawnEnemy(type,x,y){const T=ETYPES[type],m=Math.min(W,H);if(x==null){c
   const hp=T.hp*eScale()*(S.galaxy>=1?1.15:1);const e={type,x,y,vx:0,vy:0,hp,max:hp,r:Math.max(type==='mothership'?38:12,m*T.r),t:Math.random()*2,cd:1+Math.random(),state:'in',flash:0,loot:null,vis:1,ang:0};
   if(type==='mothership'){e.px=W*(.25+Math.random()*.5);e.py=H*.17;e.wave=6;e.bay=0;}
   C.enemies.push(e);return e;}
+/* keep combat / asteroid / particle positions in place relative to the scene when the canvas area changes size (full-screen toggle, rotation) */
+function remapWorld(oW,oH){const om=Math.min(oW,oH),nm=Math.min(W,H),k=nm/om,ocx=oW/2,ocy=oH/2,ncx=W/2,ncy=H/2,fx=W/oW,fy=H/oH;if(!(k>0)||!isFinite(k))return;
+  const mp=o=>{if(o&&Number.isFinite(o.x)&&Number.isFinite(o.y)){o.x=ncx+(o.x-ocx)*k;o.y=ncy+(o.y-ocy)*k;}};
+  for(const e of C.enemies){if(e.type==='mothership'){e.x*=fx;e.y*=fy;if(e.px!=null){e.px*=fx;e.py*=fy;}}else{mp(e);e.vx*=k;e.vy*=k;}const T=ETYPES[e.type];if(T)e.r=Math.max(e.type==='mothership'?38:12,nm*T.r);}
+  for(const a of [C.shots,C.fpos,C.dpos,parts,floats])for(const o of a)mp(o);
+  for(const q of rocks){mp(q);q.vx*=k;q.vy*=k;q.r=clamp(q.r*k,10,24);}
+  for(const p of parts){p.vx*=k;p.vy*=k;}
+  if(R.laserTo)mp(R.laserTo);}
 function startRaid(force){
   if(C.raid||C.father||S.travel)return;S.raids=(S.raids||0)+1;const g=S.galaxy,n=S.raids;
   const size=Math.min(28,Math.round((6+Math.floor(n/2)+3*g)*(1+.1*g)));const q=[];for(let i=0;i<size;i++)q.push(pickType());
@@ -1317,7 +1344,7 @@ function drawColony(dt,t){const g=deckGeo(),c=CO();updateAgents(dt);const hc=g.P
   ctx.font='800 13px system-ui,sans-serif';ctx.textAlign='left';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.7)';const h='Colony · '+fmt(Math.floor(c.pop))+' / '+fmt(Math.floor(popCap()))+' colonists';ctx.strokeText(h,10,20);ctx.fillStyle='#fff';ctx.fillText(h,10,20);
   ctx.font='600 11px system-ui,sans-serif';const h2='+'+(popBonus()*100).toFixed(1)+'% production'+(rpRate()>0?' · '+fmt(Math.floor(c.rp))+' RP':'');ctx.strokeText(h2,10,36);ctx.fillStyle='#9fb0ff';ctx.fillText(h2,10,36);}
 function colonyTap(x,y){const g=deckGeo();let best=null,bd=1e9;for(const k of ['hub',...COL_IDS]){const p=g.P(ROOMS[k]),r=Math.max(34,roomSize(k,g)*1.1),d=Math.hypot(p.x-x,p.y-y);if(d<r&&d<bd){bd=d;best=k;}}
-  if(!best)return;R.colSel=R.colSel===best&&best!=='hub'?best:best;sfx('tap');renderPanel();const card=document.querySelector('[data-col="'+best+'"]');if(card)card.scrollIntoView({block:'start',behavior:'smooth'});}
+  if(!best)return;R.colSel=R.colSel===best&&best!=='hub'?best:best;sfx('tap');setFS(false);renderPanel();const card=document.querySelector('[data-col="'+best+'"]');if(card)card.scrollIntoView({block:'start',behavior:'smooth'});}
 
 /* ================= colony panel ================= */
 const COL_SVG={hab:'<path d="M4 20V11l8-6 8 6v9z"/><path d="M10 20v-5h4v5"/>',trade:'<path d="M4 8h13l-3-3M20 16H7l3 3"/>',lab:'<path d="M9 3h6M10 3v6l-5 10h14L14 9V3"/>',ref:'<rect x="4" y="8" width="6" height="12" rx="2"/><rect x="14" y="5" width="6" height="15" rx="2"/><path d="M10 14h4"/>',yard:'<path d="M3 20h18M6 20V8l6-4 6 4v12M9 12h6"/>'};
@@ -1369,7 +1396,19 @@ const TABS=[['station','Station','<circle cx="12" cy="12" r="3"/><circle cx="12"
   ['galaxy','Galaxy','<path d="M12 12m-1.5 0a1.5 1.5 0 1 0 3 0a3.5 3.5 0 1 0 -7 0a5.5 5.5 0 1 0 11 0a7.5 7.5 0 1 0 -15 0"/>'],
   ['colony','Colony','<path d="M3 20h18M5 20v-7l4-3 4 3v7M13 20V9l3-3 3 3v11"/><circle cx="9" cy="16" r="1"/>'],
   ['more','More','<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>']];
-function renderTabs(){const n=$('#tabs');n.innerHTML='';for(const [id,label,svg] of TABS){const b=el('button',R.tab===id?'on':'',`<svg viewBox="0 0 24 24">${svg}</svg><span>${label}</span><i class="badge" data-b="${id}"></i>`);b.addEventListener('click',()=>{R.tab=id;if(id==='more')S.seenAch=achCount();renderTabs();renderPanel();$('#panel').scrollTop=0;});n.appendChild(b);}updateBadges();}
+function renderTabs(){const n=$('#tabs');n.innerHTML='';for(const [id,label,svg] of TABS){const on=R.tab===id,b=el('button',on?'on':'',`<svg viewBox="0 0 24 24">${svg}</svg><span>${label}</span><i class="badge" data-b="${id}"></i><i class="chev"></i>`);
+    if(on){b.setAttribute('aria-expanded',String(!R.fs));b.title=R.fs?'Show '+label+' panel':'Tap again for full screen';}
+    b.addEventListener('click',()=>{if(R.tab===id){setFS(!R.fs);return;}R.tab=id;if(id==='more')S.seenAch=achCount();renderTabs();renderPanel();$('#panel').scrollTop=0;if(R.fs)setFS(false);else fsHint();});n.appendChild(b);}updateBadges();}
+/* full-screen mode: tapping the active tab collapses its panel so the canvas fills the space between the resource bar and the tab bar */
+function setFS(on,fromPop){on=!!on;if(R.fs===on)return;R.fs=on;S.fullscreen=on;const app=$('#app'),pn=$('#panel'),tb=$('#tabs');
+  {const th=tb.getBoundingClientRect().height;if(th)app.style.setProperty('--tabsh',th+'px');};app.classList.toggle('fs',on);
+  if(on){pn.setAttribute('inert','');pn.setAttribute('aria-hidden','true');S.tips.fsTip=1;}else{pn.removeAttribute('inert');pn.removeAttribute('aria-hidden');runUpd();}
+  const ab=tb.querySelector('button.on');if(ab){ab.setAttribute('aria-expanded',String(!on));ab.title=on?'Show panel':'Tap again for full screen';}
+  // Android back button: while collapsed there is one extra history entry; going back expands the panel instead of leaving the game
+  try{if(on){if(!(history.state&&history.state.phfs))history.pushState({phfs:1},'');}else if(!fromPop&&history.state&&history.state.phfs)history.back();}catch(_){}
+  save();}
+function fsHint(){if(R.fs||(S.tips&&S.tips.fsTip))return;S.tips.fsTip=1;toast('Tip: tap the active tab to go full screen','good');save();}
+window.addEventListener('popstate',()=>{if(R.fs)setFS(false,true);});
 function updateBadges(){const set=(id,on)=>{const b=document.querySelector(`[data-b="${id}"]`);if(b)b.classList.toggle('show',!!on);};
   set('outposts',Object.keys(S.outposts).some(pi=>stored(S.outposts[pi])>=outCap(pi)*.9)||(!S.outposts[S.at]&&!S.travel&&canAfford(buildCost(S.at))));
   set('map',!!C.oraid);
@@ -1497,7 +1536,7 @@ function intro(){if(S.intro)return;S.intro=true;modal(`<h2>Planet Harvester</h2>
 /* ================= top bar ================= */
 const resEls={};
 function buildTop(){const rb=$('#resbar');rb.innerHTML='';for(const k of RES){const d=el('div','res',`<div class="a"><span class="dot" style="background:${RINFO[k].c};color:${RINFO[k].c}"></span><span class="v">0</span></div><div class="r">${RINFO[k].n}</div>`);rb.appendChild(d);resEls[k]={d,v:d.querySelector('.v'),r:d.querySelector('.r')};}
-  $('#galchip').onclick=()=>{R.tab='galaxy';renderTabs();renderPanel();};}
+  $('#galchip').onclick=()=>{R.tab='galaxy';setFS(false);renderTabs();renderPanel();};}
 function updTop(){const mining=!S.travel&&!document.hidden,rate=mining?stationRate():0,w=P[S.at].w;
   for(const k of RES){const e=resEls[k];const show=k!=='exotic'||S.galaxy>=1||S.res.exotic>0;e.d.style.display=show?'':'none';
     const v=fmt(S.res[k]);if(e.v._t!==v){e.v._t=v;e.v.textContent=v;}const rt=mining&&w[k]>0?'+'+fmt(rate*w[k])+'/s':RINFO[k].n;if(e.r._t!==rt){e.r._t=rt;e.r.textContent=rt;}}
@@ -1532,7 +1571,7 @@ function frame(ts){
     else if(S.travel){drawBackground(dt,1.2);drawTravel(dt,t);drawFx(dt);}
     else{const sh=C.shake;if(sh>0){ctx.save();ctx.translate((Math.random()-.5)*sh*2,(Math.random()-.5)*sh*2);}drawBackground(dt,.003);drawOrbit(dt,t);drawFx(dt);if(sh>0)ctx.restore();}
     if(R.tab==='map'&&R.warpFlash>0)drawFx(dt);
-    uiAcc+=dt;if(uiAcc>.2){uiAcc=0;updTop();runUpd();}
+    uiAcc+=dt;if(uiAcc>.2){uiAcc=0;updTop();if(!R.fs)runUpd();}
     achAcc+=dt;if(achAcc>1){achAcc=0;checkAch();updateBadges();}
     saveAcc+=dt;if(saveAcc>5){saveAcc=0;save();}
     abAcc+=dt;if(abAcc>2){abAcc=0;if(S.autobuy&&S.galaxy>=1&&!document.hidden)autoBuy();}
@@ -1572,15 +1611,17 @@ document.addEventListener('dblclick',e=>e.preventDefault());
 document.addEventListener('contextmenu',e=>{if(!e.target.closest('textarea'))e.preventDefault();});
 /* ================= init ================= */
 S=load();const fresh=!S;if(!S)S=newState();setWorld();C.hp=maxHull();
-buildTop();resize();new ResizeObserver(resize).observe(view);window.addEventListener('resize',resize);
-renderTabs();renderPanel();
+if(S.fullscreen){const app=$('#app');app.classList.add('notr','fs');R.fs=true;$('#panel').setAttribute('inert','');$('#panel').setAttribute('aria-hidden','true');try{if(!(history.state&&history.state.phfs))history.pushState({phfs:1},'');}catch(_){}}
+buildTop();resize();{const ro=new ResizeObserver(resize);ro.observe(view);ro.observe(mainEl);}window.addEventListener('resize',resize);
+renderTabs();renderPanel();{const app=$('#app'),tb=$('#tabs');{const th=tb.getBoundingClientRect().height;if(th)app.style.setProperty('--tabsh',th+'px');};requestAnimationFrame(()=>requestAnimationFrame(()=>app.classList.remove('notr')));}
+setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').classList.contains('hidden')){setTimeout(hintLater,15000);return;}fsHint();},30000);
 {const now=Date.now(),snap=snapshot(),away=(now-S.clock)/1000;accrueOutposts(now);updateTravel(now);
   const gains=diffSnap(snap),rd=fresh?{}:offlineRaids(away),cg=fresh?null:colonyOffline(away);if(fresh)intro();else if(away>30)welcomeBack(away,gains,rd,cg);
   if(!fresh&&(S.lastVer||5)<7){setTimeout(()=>toast('Updated! New Colony tab: build Habitats, a Trade Station, Research Lab, Refinery and Shipyard on your station, and watch your colonists move in. The colony keeps working offline at half speed.','gold'),(S.lastVer||5)<6?5200:2200);}
   if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}S.lastVer=7;
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 updTop();requestAnimationFrame(frame);
-window.PH={colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R};
+window.PH={colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R,setFS,renderPanel,remapWorld,rocks,spawnRock,get W(){return W;},get H(){return H;}};
 })();
 </script>
 </body>
