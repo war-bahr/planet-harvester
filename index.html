@@ -93,6 +93,11 @@ button *{pointer-events:none}
 #travelbar{position:absolute;left:12px;right:12px;bottom:12px;background:rgba(10,14,38,.85);border:1px solid #2c3878;border-radius:12px;padding:8px 10px;display:none;pointer-events:none}
 #travelbar .bar{margin-top:5px}
 #travelbar .bar>div{background:linear-gradient(90deg,#4867ff,#9fb0ff);transition:none}
+#firebtn{position:absolute;right:calc(12px + env(safe-area-inset-right));bottom:12px;width:84px;height:84px;border-radius:50%;border:0;display:none;flex-direction:column;align-items:center;justify-content:center;color:#fff;background:radial-gradient(circle at 50% 50%,#2a1640 58%,transparent 60%),conic-gradient(#ff5ad8 var(--p,0%),#2b2a55 0);box-shadow:0 0 0 2px #5a2a7a;z-index:4;line-height:1.1}
+#firebtn b{font-size:16px}#firebtn small{font-size:10px;color:#f3d0f7;font-weight:700}
+#firebtn.need{box-shadow:0 0 0 2px #803040}#firebtn.need b{color:#ff9aa8}
+#firebtn.ready{background:radial-gradient(circle,#ff6ae0,#a0208a);box-shadow:0 0 22px #ff5ad8;animation:pulse 1s infinite alternate}
+@keyframes pulse{to{transform:scale(1.07)}}
 #toasts{position:absolute;left:0;right:0;top:44px;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;z-index:3}
 .toast{background:rgba(12,18,48,.92);border:1px solid #33408a;padding:6px 12px;border-radius:10px;font-size:13px;font-weight:600;animation:tin .25s ease-out;max-width:92%;text-align:center}
 .toast.gold{border-color:#d9a640;color:#ffe3a3}
@@ -114,7 +119,7 @@ button *{pointer-events:none}
 <div id="app">
   <header id="top"><div id="resbar"></div><button id="galchip" aria-label="Galaxy"></button></header>
   <div id="main">
-    <div id="view"><canvas id="cv"></canvas><div id="banner"></div><div id="toasts"></div><div id="travelbar"></div></div>
+    <div id="view"><canvas id="cv"></canvas><div id="banner"></div><div id="toasts"></div><div id="travelbar"></div><button id="firebtn" aria-label="Fire Super Laser"></button></div>
     <div id="side"><div id="panel"></div><nav id="tabs"></nav></div>
   </div>
 </div>
@@ -186,7 +191,7 @@ let S,P,GAL;
 function newState(){
   const now=Date.now();
   return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0},
-    mods:{drill:0,drones:0,laser:0,engine:0},at:0,travel:null,outposts:{},clock:now,saved:now,created:now,buyMode:1,
+    mods:{drill:0,drones:0,laser:0,engine:0,super:0},laserCharge:0,at:0,travel:null,outposts:{},clock:now,saved:now,created:now,buyMode:1,
     stats:{taps:0,trips:0,rocks:0,built:0,earned:{ore:0,crystal:0,gas:0,exotic:0},play:0},ach:{},seenAch:0,intro:false};
 }
 function sanitize(o){
@@ -198,7 +203,7 @@ function sanitize(o){
   s.stats={...d.stats,...(o.stats||{})};s.stats.earned={...d.stats.earned,...((o.stats||{}).earned||{})};
   s.galaxy=Math.max(0,Math.floor(+o.galaxy||0));s.seed=(+o.seed>>>0)||d.seed;
   s.outposts={};for(const k in (o.outposts||{})){const q=o.outposts[k];if(!q)continue;const st={ore:0,crystal:0,gas:0,exotic:0};for(const r of RES)st[r]=safe(+((q.s||{})[r])||0);s.outposts[k]={lvl:Math.max(1,Math.floor(+q.lvl||1)),sto:Math.max(0,Math.floor(+q.sto||0)),s:st};}
-  s.clock=Number.isFinite(+o.clock)?+o.clock:Date.now();
+  s.clock=Number.isFinite(+o.clock)?+o.clock:Date.now();s.laserCharge=Math.max(0,+o.laserCharge||0);if(s.galaxy<1)s.mods.super=0;
   s.ach=o.ach&&typeof o.ach==='object'?o.ach:{};
   if(![1,10,'max'].includes(s.buyMode))s.buyMode=1;
   if(s.travel&&!(Number.isFinite(s.travel.to)&&Number.isFinite(s.travel.start)))s.travel=null;
@@ -236,8 +241,27 @@ const MODS={
     svg:'<path d="M4 20l7-7M13 11l7-7M14 4h6v6"/><circle cx="11" cy="13" r="2"/>'},
   engine:{name:'Warp Engine',desc:'Faster, cheaper planet travel',cost:L=>cc({gas:25*pw(1.45,L),crystal:15*pw(1.45,L)}),
     eff:()=>'Travel speed ×'+(1+.2*S.mods.engine).toFixed(1)+' · fuel use −'+Math.round(100-100/(1+.1*S.mods.engine))+'%',
-    svg:'<path d="M12 3c3 3 4 7 3 11h-6c-1-4 0-8 3-11z"/><path d="M9 14l-2 4h10l-2-4M12 18v3"/>'}
+    svg:'<path d="M12 3c3 3 4 7 3 11h-6c-1-4 0-8 3-11z"/><path d="M9 14l-2 4h10l-2-4M12 18v3"/>'},
+  super:{name:'Super Laser',desc:'Charge up, then blast the planet for a huge haul',locked:()=>S.galaxy<1,
+    cost:L=>cc({exotic:SUPER_EX*pw(2.2,L)*pw(30,Math.max(0,S.galaxy-1)),crystal:SUPER_CR*pw(2.2,L)*pw(30,Math.max(0,S.galaxy-1))}),
+    eff:()=>S.mods.super<1?'Fires exotic-fuelled blasts worth 12m of output':'Shot: '+fmtTime(shotSec())+' of output · fuel '+fmt(shotCost())+' exotic · recharge '+fmtTime(chargeTime()),
+    svg:'<circle cx="7" cy="17" r="3"/><path d="M9 15L20 4M15 4h5v5M12 18l2 2M4 10l2 2"/>'}
 };
+/* Super Laser: galaxy 2+ only. Charges only while the game is open (like the station). */
+const SUPER_EX=2.5e7,SUPER_CR=2e7;
+function chargeTime(){return Math.max(15,120/(1+.2*(S.mods.super-1)));}
+function shotSec(){return 720*(1+.5*(Math.max(1,S.mods.super)-1));}
+/* station power at richness 1 (no flare): grows with all station upgrades, galaxy richness and empire bonus */
+function stationPower(){return droneCount()*perDrone()*gRich()*empire();}
+/* per-shot exotic fuel: 60s of station power, 10% cheaper per extra laser level, with a galaxy-scaled floor */
+function shotCost(){return safe(Math.ceil(Math.max(5e4*pw(30,Math.max(0,S.galaxy-1)),60*stationPower())*pw(.9,Math.max(1,S.mods.super)-1)));}
+const shotAffordable=()=>S.res.exotic>=shotCost();
+function shotWeights(){const w={...P[S.at].w};w.exotic=0;let s=0;for(const k of RES)s+=w[k];for(const k of RES)w[k]=s>0?w[k]/s:0;return w;}
+const laserOwned=()=>S.galaxy>=1&&S.mods.super>0;
+const laserReady=()=>laserOwned()&&S.laserCharge>=chargeTime();
+function fireLaser(){if(!laserReady()||S.travel)return;const fuel=shotCost();if(!(S.res.exotic>=fuel)){toast('Need '+fmt(fuel)+' exotic to fire','');return;}S.res.exotic=safe(S.res.exotic-fuel);S.laserCharge=0;const amt=stationRate()*shotSec();addSplit(amt,shotWeights());S.stats.shots=(S.stats.shots||0)+1;R.laserFx=1.3;
+  if(R.geo){burst(R.geo.cx,R.geo.cy,70,(()=>{const g={};const w=shotWeights();for(const k of RES)if(w[k]>0)g[k]=1;return g;})());floatText(R.geo.cx,R.geo.cy+R.geo.R+26,'SUPER LASER +'+fmt(amt),'#ff9cf0');}
+  if(navigator.vibrate){try{navigator.vibrate([20,40,60]);}catch(_){}}checkAch();}
 function costAdd(a,b){const o={...a};for(const k in b)o[k]=(o[k]||0)+b[k];return o;}
 function canAfford(c){for(const k in c)if(c[k]>0&&!(S.res[k]>=c[k]))return false;return true;}
 function pay(c){for(const k in c)if(c[k]>0)S.res[k]=safe(S.res[k]-c[k]);}
@@ -281,7 +305,7 @@ function buildOutpost(){
 }
 function upOutpost(pi){const o=S.outposts[pi];if(!o)return;const b=bulk(L=>lvlCost(pi,L),o.lvl);if(!canAfford(b.c))return;accrueOutposts(Date.now());pay(b.c);o.lvl+=b.n;checkAch();}
 function upStorage(pi){const o=S.outposts[pi];if(!o)return;const c=stoCost(pi,o.sto);if(!canAfford(c))return;accrueOutposts(Date.now());pay(c);o.sto++;}
-function buyMod(k){const L=S.mods[k];const b=bulk(MODS[k].cost,L);if(!canAfford(b.c))return;pay(b.c);S.mods[k]+=b.n;checkAch();}
+function buyMod(k){if(MODS[k].locked&&MODS[k].locked())return;const L=S.mods[k];const b=bulk(MODS[k].cost,L);if(!canAfford(b.c))return;pay(b.c);S.mods[k]+=b.n;checkAch();}
 
 /* travel */
 const pdist=(a,b)=>Math.hypot(P[a].x-P[b].x,P[a].y-P[b].y);
@@ -337,7 +361,7 @@ const $=s=>document.querySelector(s);
 const cv=$('#cv'),ctx=cv.getContext('2d'),view=$('#view');
 let W=1,H=1,DPR=1;
 function resize(){const r=view.getBoundingClientRect();DPR=Math.min(2,window.devicePixelRatio||1);W=Math.max(1,r.width);H=Math.max(1,r.height);cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);ctx.setTransform(DPR,0,0,DPR,0,0);}
-const R={tab:'station',sel:null,geo:null,warpFlash:0,evtT:75,showerUntil:0,nextRock:0,lastTapHint:0};
+const R={laserFx:0,tab:'station',sel:null,geo:null,warpFlash:0,evtT:75,showerUntil:0,nextRock:0,lastTapHint:0};
 const parts=[],floats=[],rocks=[];
 const texCache=new Map();let nebula=null;
 const STARS=[0,1,2].map(l=>{const r=mulberry(77+l);return Array.from({length:[110,55,22][l]},()=>({x:r(),y:r(),b:.25+r()*.75,tw:r()*TAU}));});
@@ -443,6 +467,12 @@ function drawOrbit(dt,t){
     const ds=Math.max(3.5,s*.24);ctx.save();ctx.translate(x,y);ctx.rotate(ang);ctx.fillStyle='#d7defa';ctx.beginPath();ctx.moveTo(ds,0);ctx.lineTo(-ds*.7,ds*.6);ctx.lineTo(-ds*.4,0);ctx.lineTo(-ds*.7,-ds*.6);ctx.closePath();ctx.fill();
     ctx.fillStyle='rgba(120,190,255,.8)';ctx.beginPath();ctx.arc(-ds*.6,0,ds*.25,0,TAU);ctx.fill();ctx.restore();
   }
+  if(laserOwned()&&!S.travel){const f=clamp(S.laserCharge/chargeTime(),0,1);ctx.strokeStyle=hsl(315,100,70,.25+.5*f);ctx.lineWidth=3;ctx.beginPath();ctx.arc(sx,sy,s*1.45,-Math.PI/2,-Math.PI/2+TAU*f);ctx.stroke();
+    if(f>=1){ctx.fillStyle=hsl(315,100,70,.25+.25*Math.sin(t*6));ctx.beginPath();ctx.arc(sx,sy,s*1.6,0,TAU);ctx.fill();}}
+  if(R.laserFx>0){const k=R.laserFx/1.3,wv=s*(.5+1.2*k)*(1+.15*Math.sin(t*60));ctx.save();ctx.lineCap='round';
+    for(const [lw,col] of [[wv*2.2,hsl(315,100,60,.25*k)],[wv,hsl(315,100,70,.8*k)],[wv*.35,`rgba(255,255,255,${k})`]]){ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(cx,cy);ctx.stroke();}
+    ctx.fillStyle=`rgba(255,200,250,${.5*k})`;ctx.beginPath();ctx.arc(cx,cy,R0*(.3+.5*(1-k)),0,TAU);ctx.fill();ctx.restore();R.laserFx-=dt;
+    if(Math.random()<.8)spawn(cx+Math.random()*R0-R0/2,cy+Math.random()*R0-R0/2,Math.random()*200-100,Math.random()*200-100,.6,'#ff9cf0',3);}
   drawStation(sx,sy,s,t);
   // rocks
   for(let i=rocks.length-1;i>=0;i--){const k=rocks[i];k.x+=k.vx*dt;k.y+=k.vy*dt;k.rot+=k.vr*dt;k.age+=dt;
@@ -549,7 +579,9 @@ function pStation(pn){
   if(!S.travel&&!S.outposts[S.at])pn.appendChild(buildCard());
   const hr=el('div','row');hr.innerHTML='<div class="h grow" style="margin:6px 2px">Station modules</div>';hr.appendChild(buyModeSeg());pn.appendChild(hr);
   if(!S.intro2&&S.stats.taps<30){const t=el('div','tip','Tip: the station only mines while the game is open. Outposts keep working while you are away.');pn.appendChild(t);}
-  for(const k in MODS){const M=MODS[k];const c=el('div','card');const r=el('div','row');
+  for(const k in MODS){const M=MODS[k];
+    if(M.locked&&M.locked()){pn.appendChild(el('div','card',`<div class="row" style="opacity:.6"><div class="icon"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div><div class="grow"><div class="title" style="font-size:14px">${M.name} <span class="lv">LOCKED</span></div><div class="sub">Reach Galaxy 2 to unlock</div></div></div>`));continue;}
+    const c=el('div','card');const r=el('div','row');
     r.appendChild(el('div','icon',`<svg viewBox="0 0 24 24">${M.svg}</svg>`));
     const info=el('div','grow');live(info,e=>setHTML(e,`<div class="title" style="font-size:14px">${M.name}<span class="lv">Lv ${S.mods[k]}</span></div><div class="sub">${M.eff()}</div>`));r.appendChild(info);
     r.appendChild(btn('',()=>{const b=bulk(M.cost,S.mods[k]);return 'Upgrade +'+b.n;},()=>bulk(M.cost,S.mods[k]).c,()=>buyMod(k)));
@@ -638,6 +670,7 @@ function updTop(){const mining=!S.travel&&!document.hidden,rate=mining?stationRa
     const v=fmt(S.res[k]);if(e.v._t!==v){e.v._t=v;e.v.textContent=v;}const rt=mining&&w[k]>0?'+'+fmt(rate*w[k])+'/s':RINFO[k].n;if(e.r._t!==rt){e.r._t=rt;e.r.textContent=rt;}}
   setHTML($('#galchip'),`<span>Galaxy</span><b>${S.galaxy+1}</b><span>×${empire().toFixed(2)}</span>`);
   const tb=$('#travelbar');if(S.travel){const k=clamp((Date.now()-S.travel.start)/S.travel.dur,0,1);tb.style.display='block';setHTML(tb,`<div class="row" style="font-size:13px"><b class="grow">Traveling to ${P[S.travel.to].name}</b><span>${fmtTime(Math.ceil((S.travel.start+S.travel.dur-Date.now())/1000))}</span></div><div class="bar"><div style="width:${(k*100).toFixed(1)}%"></div></div>`);}else tb.style.display='none';
+  const fb=$('#firebtn');if(laserOwned()&&!S.travel&&R.tab!=='map'){const f=clamp(S.laserCharge/chargeTime(),0,1);fb.style.display='flex';fb.style.setProperty('--p',(f*100).toFixed(1)+'%');const cst=shotCost(),ok=S.res.exotic>=cst;fb.classList.toggle('ready',f>=1&&ok);fb.classList.toggle('need',f>=1&&!ok);setHTML(fb,f<1?'<b>'+Math.floor(f*100)+'%</b><small>charging</small><small>'+fmt(cst)+' exotic</small>':ok?'<b>FIRE</b><small>'+fmt(cst)+' exotic</small>':'<b>NEED</b><small>'+fmt(cst)+' exotic</small>');fb.disabled=!(f>=1&&ok);}else fb.style.display='none';
   const bn=$('#banner'),now=performance.now();
   if(flareOn()){bn.style.display='block';bn.className='flare';bn.textContent='Solar flare! Station output ×3 · '+Math.ceil((flareUntil-now)/1000)+'s';}
   else if(now<R.showerUntil*1000||rocks.length){bn.style.display='block';bn.className='';bn.textContent=R.tab==='map'?'Asteroid shower! Open Station view to smash rocks':'Asteroid shower! Tap the rocks for bonus loot';}
@@ -653,7 +686,7 @@ function frame(ts){
     updateTravel(now);
     if(!document.hidden){
       S.stats.play+=dt;
-      if(!S.travel){addSplit(stationRate()*dt,P[S.at].w);} // station: only while visible
+      if(!S.travel){addSplit(stationRate()*dt,P[S.at].w);if(laserOwned())S.laserCharge=Math.min(chargeTime(),S.laserCharge+dt);} // station & Super Laser: only while visible
       R.evtT-=dt;if(R.evtT<=0){R.evtT=70+Math.random()*90;if(!S.travel){if(Math.random()<.62){R.showerUntil=t+14;R.nextRock=t;toast('Asteroid shower incoming!','gold');}else{flareUntil=performance.now()+30000;toast('Solar flare! Station output ×3 for 30s','gold');}}}
       if(t<R.showerUntil&&t>=R.nextRock&&!S.travel&&R.tab!=='map'){spawnRock();R.nextRock=t+.9+Math.random()*.8;}
     }
@@ -674,6 +707,7 @@ document.addEventListener('visibilitychange',()=>{
     if(hiddenAt&&now-hiddenAt>60000&&hiddenSnap)welcomeBack((now-hiddenAt)/1000,diffSnap(hiddenSnap));hiddenAt=0;hiddenSnap=null;}
 });
 window.addEventListener('pagehide',save);window.addEventListener('beforeunload',save);
+$('#firebtn').addEventListener('click',()=>{fireLaser();updTop();});
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
 
 
@@ -705,7 +739,7 @@ renderTabs();renderPanel();
 {const now=Date.now(),snap=snapshot(),away=(now-S.clock)/1000;accrueOutposts(now);updateTravel(now);
   if(fresh)intro();else if(away>30)welcomeBack(away,diffSnap(snap));}
 updTop();requestAnimationFrame(frame);
-window.PH={makeIcon,get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R};
+window.PH={makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R};
 })();
 </script>
 </body>
