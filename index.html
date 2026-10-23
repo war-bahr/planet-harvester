@@ -187,7 +187,7 @@ function genGalaxy(seed,g){
 let S,P,GAL;
 function newState(){
   const now=Date.now();
-  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,tips:{},lastVer:6,raids:0,father:{},trophies:{},
+  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,tips:{},lastVer:7,colony:newColony(),raids:0,father:{},trophies:{},
     mods:{drill:0,drones:0,laser:0,engine:0,super:0},laserCharge:0,at:0,travel:null,outposts:{},clock:now,saved:now,created:now,buyMode:1,
     stats:{taps:0,trips:0,rocks:0,built:0,earned:{ore:0,crystal:0,gas:0,exotic:0},play:0},ach:{},seenAch:0,intro:false};
 }
@@ -203,7 +203,7 @@ function sanitize(o){
   s.galaxy=Math.max(0,Math.floor(+o.galaxy||0));s.seed=(+o.seed>>>0)||d.seed;
   s.outposts={};for(const k in (o.outposts||{})){const q=o.outposts[k];if(!q)continue;const st={ore:0,crystal:0,gas:0,exotic:0};for(const r of RES)st[r]=safe(+((q.s||{})[r])||0);s.outposts[k]={lvl:Math.max(1,Math.floor(+q.lvl||1)),sto:Math.max(0,Math.floor(+q.sto||0)),tur:Math.max(0,Math.floor(+q.tur||0)),s:st};}
   s.clock=Number.isFinite(+o.clock)?+o.clock:Date.now();s.laserCharge=Math.max(0,+o.laserCharge||0);if(s.galaxy<1)s.mods.super=0;
-  s.ach=o.ach&&typeof o.ach==='object'?o.ach:{};
+  s.ach=o.ach&&typeof o.ach==='object'?o.ach:{};s.colony=sanitizeColony(o.colony);
   if(![1,10,'max'].includes(s.buyMode))s.buyMode=1;
   if(s.travel&&!(Number.isFinite(s.travel.to)&&Number.isFinite(s.travel.start)))s.travel=null;
   return s;
@@ -216,7 +216,7 @@ function setWorld(){GAL=genGalaxy(S.seed,S.galaxy);P=GAL.planets;if(S.at<0||S.at
 const gRich=()=>pw(4,S.galaxy);
 const gCost=()=>pw(5,S.galaxy);
 const achCount=()=>Object.keys(S.ach).length;
-const empire=()=>(1+S.galaxy)*(1+.03*achCount());
+const empire=()=>(1+S.galaxy)*(1+.03*achCount())*colonyMult();
 let flareUntil=0;
 const flareOn=()=>performance.now()<flareUntil;
 function perDrone(){const d=S.mods.drill;return (1+.6*d)*pw(2,Math.floor(d/25));}
@@ -224,7 +224,7 @@ function droneCount(){return 1+S.mods.drones;}
 function stationRate(pi){if(pi==null)pi=S.at;const p=P[pi];return safe(droneCount()*perDrone()*p.rich*gRich()*empire()*(flareOn()?3:1)*(dronesEngaged()?.5:1));}
 function tapAmt(){const L=S.mods.laser;return safe((2+1.5*L)*pw(1.12,L)*gRich()*empire()+.1*stationRate());}
 function outRate(pi){const o=S.outposts[pi];if(!o)return 0;const p=P[pi];return safe(.5*o.lvl*pw(1.05,o.lvl-1)*p.rich*gRich()*empire());}
-function capSec(o){return 1800*pw(1.5,o.sto);}
+function capSec(o){return 1800*pw(1.5,o.sto)*(1+.1*perk('store'));}
 function outCap(pi){const o=S.outposts[pi];return o?safe(outRate(pi)*capSec(o)):0;}
 function stored(o){let t=0;for(const k of RES)t+=o.s[k];return t;}
 const cc=o=>{const r={};for(const k in o)if(o[k]>0)r[k]=safe(o[k]<1e15?Math.ceil(o[k]):o[k]);return r;};
@@ -248,7 +248,7 @@ const MODS={
 };
 /* Super Laser: galaxy 2+ only. Charges only while the game is open (like the station). */
 const SUPER_EX=2.5e7,SUPER_CR=2e7;
-function chargeTime(){return Math.max(15,120/(1+.2*(S.mods.super-1)));}
+function chargeTime(){return Math.max(15,120/(1+.2*(S.mods.super-1))/(1+.08*perk('laser')));}
 function shotSec(){return 720*(1+.5*(Math.max(1,S.mods.super)-1));}
 /* station power at richness 1 (no flare): grows with all station upgrades, galaxy richness and empire bonus */
 function stationPower(){return droneCount()*perDrone()*gRich()*empire();}
@@ -309,7 +309,7 @@ function buyMod(k){if(MODS[k].locked&&MODS[k].locked())return;const L=S.mods[k];
 /* travel */
 const pdist=(a,b)=>Math.hypot(P[a].x-P[b].x,P[a].y-P[b].y);
 function travelCost(to,instant){return cc({gas:6*(1+pdist(S.at,to)*10)*gRich()/(1+.1*S.mods.engine)*(instant?3:1)});}
-function travelTime(to){return (2+pdist(S.at,to)*25)/(1+.2*S.mods.engine);}
+function travelTime(to){return (2+pdist(S.at,to)*25)/(1+.2*S.mods.engine)/(1+.1*perk('travel'));}
 function startTravel(to,instant){
   if(S.travel||to===S.at||!P[to])return;if(C.father){toast('You cannot flee the Father Ship!','');return;}const c=travelCost(to,instant);if(!canAfford(c)){toast('Not enough gas for that trip','');return;}
   pay(c);if(C.raid){C.raid=null;for(const e of C.enemies)e.state='flee';}
@@ -341,6 +341,8 @@ function jumpGalaxy(){
 /* achievements */
 const ACH=[
   ['first','First Haul','Mine 100 ore',()=>S.stats.earned.ore>=100],
+  ['col1','Township','Grow your colony to 50 colonists',()=>S.colony&&S.colony.pop>=50],
+  ['col2','Metropolis','Grow your colony to 500 colonists',()=>S.colony&&S.colony.pop>=500],
   ['tap','Busy Fingers','Tap the planet 300 times',()=>S.stats.taps>=300],
   ['out1','Settler','Build your first outpost',()=>S.stats.built>=1],
   ['out3','Colonist','Run 3 outposts at once',()=>outCount()>=3],
@@ -529,6 +531,7 @@ function drawFx(dt){
 /* ================= input ================= */
 cv.addEventListener('pointerdown',e=>{
   const b=cv.getBoundingClientRect(),x=e.clientX-b.left,y=e.clientY-b.top;
+  if(R.tab==='colony'&&colonyViewOn()){colonyTap(x,y);return;}
   if(R.tab==='map'){let best=null,bd=1e9;for(const p of P){const q=mapPos(p),d=Math.hypot(q.x-x,q.y-y);if(d<Math.max(26,mapR(p)+12)&&d<bd){bd=d;best=p.i;}}if(best!=null){R.sel=best;renderPanel();}return;}
   if(S.travel||!R.geo)return;
   if(laserOwned()){const g0=R.geo,ds=Math.hypot(g0.sx-x,g0.sy-y);if(ds<Math.max(34,g0.s*1.9)&&Math.hypot(g0.cx-x,g0.cy-y)>g0.R){const closer=C.enemies.some(e=>e.vis>.5&&Math.hypot(e.x-x,e.y-y)<Math.min(ds,Math.max(30,e.r*1.6)));if(!closer){stationTap();return;}}}
@@ -564,7 +567,7 @@ CMODS.critChance={name:'Crit Chance',desc:'Chance for critical hits (max 50%)',c
 CMODS.critPower={name:'Crit Power',desc:'Critical hit multiplier',cost:L=>cc({salvage:30*pw(1.5,L)}),eff:()=>'×'+critMult().toFixed(2)+' mining · ×'+combatCritMult().toFixed(2)+' vs pirates',svg:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>'};
 const cl=k=>(S.combat&&S.combat[k])||0;
 function droneDps(){const A=cl('armaments');return .25*(1+.05*S.mods.drill)*(1+.35*A)*pw(1.07,A);}
-function critChance(auto){const c=.05+.45*(1-pw(.92,cl('critChance')));return auto?c*.4:c;}
+function critChance(auto){const c=Math.min(.6,.05+.45*(1-pw(.92,cl('critChance')))+.01*Math.min(5,perk('crit')));return auto?c*.4:c;}
 function critMult(){return 3+.25*cl('critPower');}
 function combatCritMult(){return critMult()*1.5;}
 function rollCrit(auto){return Math.random()<critChance(auto);}
@@ -586,7 +589,7 @@ function sfx(type){if(!S||S.sound===false||!SFX.ok)return;const now=performance.
     const P={tap:[520,780,.06,'triangle',.035],coin:[880,1500,.14,'sine',.05],crit:[700,1600,.18,'square',.045],crit2:[300,1900,.28,'sawtooth',.06],zap:[1400,700,.05,'square',.012],boom:[160,40,.3,'sawtooth',.05],hit:[220,90,.12,'square',.04],laser:[180,1500,.9,'sawtooth',.06],alarm:[520,360,.45,'square',.05]}[type];if(!P)return;
     const t=a.currentTime,o=a.createOscillator(),g=a.createGain();o.type=P[3];o.frequency.setValueAtTime(P[0],t);o.frequency.exponentialRampToValueAtTime(P[1],t+P[2]);g.gain.setValueAtTime(P[4],t);g.gain.exponentialRampToValueAtTime(.0001,t+P[2]+.05);o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+P[2]+.08);}catch(_){}}
 function tapDmg(){const L=cl('cannon');return 12*(1+.8*L)*pw(1.12,L);}
-function fighterCount(){return 2+cl('fighters');}
+function fighterCount(){return 2+cl('fighters')+colonyShips();}
 function fighterDps(){const W=cl('weapons');return 5*(1+.35*W)*pw(1.08,W);}
 function maxHull(){const H=cl('hull');return 300*(1+.5*H)*pw(1.1,H);}
 function maxShield(){const L=cl('shields');return 150*(1+.6*L)*pw(1.1,L);}
@@ -653,7 +656,7 @@ function fatherDmgK(){const g=S.galaxy;return 1.5*pw(1.5,g-1)*(g>=2?pw(1.2,g-1):
 function startFather(){
   if(!fatherExists()||C.father||S.travel)return;const f=fatherInfo();if(f.beaten)return;
   if(C.raid){C.raid=null;C.enemies.length=0;}
-  f.met=true;const k=fatherScale();C.hp=maxHull();C.shots.length=0;
+  f.met=true;const k=fatherScale()*(1+.6*colonyShips()/(2+cl('fighters'))+.03*Math.min(5,perk('crit')));/* boss adapts to colony-built fighters & research so the gate stays hard */C.hp=maxHull();C.shots.length=0;
   const parts=[['podL','pod',-.39,.1,24000],['podR','pod',.39,.1,24000],['genL','gen',-.19,-.12,30000],['genR','gen',.19,-.12,30000],['core','core',0,.06,95000]].map(([id,kind,ox,oy,hp])=>({id,kind,ox,oy,hp:hp*k,max:hp*k,cd:2+Math.random(),flash:0}));
   sfx('alarm');setTimeout(()=>sfx('alarm'),700);setTimeout(()=>sfx('alarm'),1400);
   C.father={phase:0,warn:5.5,t:0,y:-1,parts,waveT:8,beamT:7,beam:0,beamAim:0,motherDone:false,end:null};
@@ -852,7 +855,7 @@ function stationTap(){const g=R.geo;if(!g)return;
 
 /* ================= outpost raids: live (map countdown) + offline (capped) ================= */
 const RAID_PER_HOUR=.5,RAID_MAX_FRAC=.10,ABSENCE_MAX_FRAC=.20,ORAID_TIME=90;
-function outDefense(pi){const o=S.outposts[pi];if(!o)return 0;const t=o.tur||0;return (6+14*t*pw(1.12,t)+maxShield()/25)*eScale();}
+function outDefense(pi){const o=S.outposts[pi];if(!o)return 0;const t=o.tur||0;return (6+14*t*pw(1.12,t)+maxShield()/25)*eScale()*(1+.1*perk('def'));}
 function pirateStrength(){return 8*eScale()*(1+.25*S.galaxy)*(S.galaxy>=1?1.6*1.15:1.3);}
 function repelChance(pi){const D=outDefense(pi),p=pirateStrength();return D/(D+p);}
 function turCost(pi,L){return cc({salvage:6*pw(1.38,L)*eScale(),ore:80*pw(1.5,L)*gCost()*P[pi].cf});}
@@ -894,6 +897,190 @@ function drawORaidMap(t){const r=C.oraid;if(!r)return;const tg=mapPos(P[r.pi]),k
   const a=Math.atan2(tg.y-y,tg.x-x);for(let i=0;i<4;i++){const ox=Math.cos(a+2.4+i)*10*(i?1:0),oy=Math.sin(a+2.4+i)*10*(i?1:0);ctx.save();ctx.translate(x+ox,y+oy);ctx.rotate(a);ctx.fillStyle='#ff4d5e';ctx.beginPath();ctx.moveTo(7,0);ctx.lineTo(-5,4.5);ctx.lineTo(-2,0);ctx.lineTo(-5,-4.5);ctx.closePath();ctx.fill();ctx.restore();}
   const rr=mapR(P[r.pi]);ctx.strokeStyle=`rgba(255,70,90,${.5+.5*Math.sin(t*8)})`;ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(tg.x,tg.y,rr+9,0,TAU);ctx.stroke();
   ctx.font='bold 12px system-ui,sans-serif';ctx.textAlign='center';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.7)';const txt='PIRATES '+Math.ceil(r.t)+'s';ctx.strokeText(txt,x,y-12);ctx.fillStyle='#ff9aa8';ctx.fillText(txt,x,y-12);}
+
+/* ================= v7: Space Station Colony ================= */
+const COLONY_OFFLINE_RATE=0.5;           // offline colony progress runs at half the active rate (user decision)
+const COL_IDS=['hab','trade','lab','ref','yard'];
+const colK=()=>pw(30,S.galaxy);          // colony costs scale like the galaxy-jump economy
+function newColony(){return {on:false,pop:0,mods:{hab:0,trade:0,lab:0,ref:0,yard:0},rp:0,rpTotal:0,perks:{},refOut:'off',ships:0,yt:0,tv:-1,exq:-1,born:0,refined:0,traded:0};}
+function sanitizeColony(o){const d=newColony();if(!o||typeof o!=='object')return d;const c={...d,...o};
+  c.mods={...d.mods};for(const k of COL_IDS)c.mods[k]=Math.max(0,Math.floor(+((o.mods||{})[k])||0));
+  c.perks={};for(const k in PERKS)c.perks[k]=Math.max(0,Math.floor(+((o.perks||{})[k])||0));
+  for(const k of ['pop','rp','rpTotal','yt','born','refined','traded'])c[k]=safe(Math.max(0,+o[k]||0));
+  c.ships=Math.max(0,Math.floor(+o.ships||0));c.tv=Number.isFinite(+o.tv)?+o.tv:-1;c.exq=Number.isFinite(+o.exq)?+o.exq:-1;
+  if(!['off','crystal','gas','exotic'].includes(c.refOut))c.refOut='off';c.on=!!o.on;return c;}
+const CO=()=>S.colony;
+const colLv=k=>(S&&S.colony&&S.colony.mods[k])||0;
+const perk=k=>(S&&S.colony&&S.colony.perks&&S.colony.perks[k])||0;
+const colonyUnlocked=()=>S.stats.built>=1||S.galaxy>=1;
+function ensureColony(){const c=CO();if(!c.on&&colonyUnlocked()){c.on=true;if(c.mods.hab<1)c.mods.hab=1;if(c.pop<2)c.pop=2;return true;}return false;}
+/* population */
+function popCap(){const L=colLv('hab');return L<1?0:10*L*pw(1.05,L-1);}
+function popGrowth(){const c=CO(),cap=popCap();if(!c.on||cap<=0)return 0;return c.pop>=cap?0:(.04+.01*c.pop)*clamp(1.1-c.pop/cap,0,1);}
+function popBonus(){const p=(S&&S.colony&&S.colony.on)?S.colony.pop:0;return .4*p/(p+250);}       // up to +40% production, diminishing
+function crew(){const p=CO().pop;return 1+p/(p+100);}                                         // staffing: x1 .. x2 module output
+function colonyMult(){return (1+popBonus())*(1+.04*perk('mine'));}
+const MOD_GATE={hab:0,trade:5,lab:10,ref:15,yard:20};
+const colGateOk=k=>CO().pop>=MOD_GATE[k]||colLv(k)>0;
+/* research */
+const PERKS={
+  mine:{name:'Deep Core Survey',d:'+4% all production',base:20},
+  crit:{name:'Targeting AI',d:'+1% crit chance (max 5 levels)',base:40,max:5},
+  store:{name:'Compression Holds',d:'+10% outpost storage',base:25},
+  travel:{name:'Warp Theory',d:'−9% travel time',base:15},
+  def:{name:'Pirate Tactics',d:'+10% outpost defense',base:30},
+  laser:{name:'Capacitor Banks',d:'Super Laser recharges 8% faster',base:50}};
+const perkCost=k=>Math.ceil(PERKS[k].base*pw(1.8,perk(k)));
+function buyPerk(k){const P0=PERKS[k];if(P0.max&&perk(k)>=P0.max)return;const c=perkCost(k);if(!(CO().rp>=c))return;CO().rp-=c;CO().perks[k]=perk(k)+1;sfx('coin');toast(P0.name+' → Lv '+perk(k),'good');save();renderPanel();}
+const rpRate=()=>{const L=colLv('lab');return L<1?0:.05*L*pw(1.07,L)*crew();};
+/* refinery */
+const REF_RATIO={crystal:.5,gas:.5,exotic:.05};
+const refThroughput=()=>{const L=colLv('ref');return L<1?0:.02*L*pw(1.05,L)*crew()*stationPower();};  // ore per second
+const refOptions=()=>S.galaxy>=1?['off','crystal','gas','exotic']:['off','crystal','gas'];
+/* shipyard */
+const shipCap=()=>{const L=colLv('yard');return L<1?0:Math.min(2*L,Math.ceil(.25*(2+cl('fighters'))));}  // never more than +25% of your Fighter Wing
+const shipTime=()=>90/(1+.15*(colLv('yard')-1))/crew();
+const colonyShips=()=>Math.min(CO()?CO().ships:0,shipCap());
+/* trade */
+const TVAL={ore:1,crystal:2.2,gas:2.2,exotic:4};
+function tradeFee(){const L=colLv('trade');return .03+.25*pw(.9,Math.max(0,L-1));}
+function priceAt(k,ts){const i=RES.indexOf(k)+1,t=ts/1000;return TVAL[k]*(1+.2*Math.sin(t/173+i*1.7)+.1*Math.sin(t/61+i*2.9)+.05*Math.sin(t/23+i*4.1));}
+const price=k=>priceAt(k,Date.now());
+const tradeRes=()=>S.galaxy>=1?RES:RES.filter(k=>k!=='exotic');
+function tvMax(){return 900*stationPower()*(1+.2*Math.max(0,colLv('trade')-1));}   // trade volume (ore-value) per hour
+function exqMax(){return S.galaxy>=1?2*shotCost():0;}                               // exotic you may BUY per hour: ~2 Super Laser shots
+function tradeQuote(from,to,amt){return amt*price(from)/price(to)*(1-tradeFee());}
+function doTrade(from,to,frac){const c=CO();if(colLv('trade')<1||from===to)return;
+  let amt=S.res[from]*frac;const val=price(from);amt=Math.min(amt,c.tv/val);
+  let out=tradeQuote(from,to,amt);if(to==='exotic'){if(out>c.exq){out=c.exq;amt=out/(price(from)/price(to)*(1-tradeFee()));}}
+  if(!(amt>0)||!(out>0)){toast(c.tv<1?'Trade volume used up — it refills over the hour':to==='exotic'?'Exotic import quota used up':'Nothing to trade','');return;}
+  S.res[from]=safe(S.res[from]-amt);S.res[to]=safe(S.res[to]+out);c.tv=Math.max(0,c.tv-amt*val);if(to==='exotic')c.exq=Math.max(0,c.exq-out);c.traded+=amt*val;
+  sfx('coin');toast('Traded '+fmt(amt)+' '+RINFO[from].n+' → '+fmt(out)+' '+RINFO[to].n,'good');save();}
+/* module definitions */
+const CMODS2={
+  hab:{name:'Habitats',cost:L=>cc({ore:300*pw(1.55,L)*colK(),gas:120*pw(1.55,L)*colK()}),eff:()=>`Room for ${fmt(Math.floor(popCap()))} colonists · +${(popBonus()*100).toFixed(1)}% production`,col:'#7ad7ff'},
+  trade:{name:'Trade Station',cost:L=>cc({ore:1500*pw(1.6,L)*colK(),crystal:600*pw(1.6,L)*colK()}),eff:()=>colLv('trade')?`Fee ${(tradeFee()*100).toFixed(1)}% · volume ${fmt(tvMax())}/h`:'Exchange resources at drifting prices',col:'#ffd36b'},
+  lab:{name:'Research Lab',cost:L=>cc({crystal:800*pw(1.6,L)*colK(),gas:400*pw(1.6,L)*colK()}),eff:()=>colLv('lab')?`${rpRate().toFixed(2)} research/s · ${fmt(Math.floor(CO().rp))} RP`:'Research permanent perks',col:'#b48cff'},
+  ref:{name:'Refinery',cost:L=>cc({ore:2000*pw(1.58,L)*colK(),gas:600*pw(1.58,L)*colK()}),eff:()=>colLv('ref')?`${fmt(refThroughput())} ore/s → ${CO().refOut==='off'?'(idle)':RINFO[CO().refOut].n}`:'Turns ore into crystal, gas or exotic',col:'#ff9f5a'},
+  yard:{name:'Shipyard',cost:L=>cc({ore:1200*pw(1.6,L)*colK(),crystal:500*pw(1.6,L)*colK(),salvage:15*pw(1.4,L)*pw(1.6,S.galaxy)}),eff:()=>colLv('yard')?`${colonyShips()}/${shipCap()} extra fighters built`:'Builds extra combat fighters',col:'#8dffb0'}};
+function buyCol(k){const M=CMODS2[k];if(!colGateOk(k))return;const b=bulk(M.cost,colLv(k));if(!canAfford(b.c))return;pay(b.c);CO().mods[k]+=b.n;
+  if(colLv(k)===b.n&&k!=='hab')toast(M.name+' built! Colonists are moving in.','gold');sfx('coin');vib(10);COLV.pulse[k]=1;save();renderPanel();}
+/* simulation: used live (rate 1) and offline (rate COLONY_OFFLINE_RATE) */
+function colonyStep(dt,rate,oreFloor){const c=CO();if(!c.on)return {pop:0,rp:0,refIn:0,refOut:0,ships:0};const d=dt*rate,r={pop:0,rp:0,refIn:0,refOut:0,ships:0};
+  const g=popGrowth()*d,p0=c.pop;c.pop=Math.min(popCap(),c.pop+g);if(c.pop<p0)c.pop=p0;r.pop=c.pop-p0;c.born+=r.pop;
+  const rp=rpRate()*d;c.rp+=rp;c.rpTotal+=rp;r.rp=rp;
+  if(c.refOut!=='off'&&colLv('ref')>0&&!(c.refOut==='exotic'&&S.galaxy<1)){const use=Math.min(Math.max(0,S.res.ore-(oreFloor||0)),refThroughput()*d);if(use>0){S.res.ore=safe(S.res.ore-use);const o=use*REF_RATIO[c.refOut];addRes(c.refOut,o);c.refined+=use;r.refIn=use;r.refOut=o;r.refK=c.refOut;}}
+  if(colLv('yard')>0&&c.ships<shipCap()){c.yt+=d;const T=shipTime();while(c.yt>=T&&c.ships<shipCap()){c.yt-=T;c.ships++;r.ships++;}}else c.yt=0;
+  // trade allowances refill over real time (one full refill per hour)
+  if(c.tv<0)c.tv=tvMax();c.tv=Math.min(tvMax(),c.tv+tvMax()*dt/3600);if(c.exq<0)c.exq=exqMax();c.exq=Math.min(exqMax(),c.exq+exqMax()*dt/3600);
+  return r;}
+function colonyOffline(sec){if(!CO().on||!(sec>0))return null;sec=Math.min(sec,48*3600);const tot={pop:0,rp:0,refIn:0,refOut:0,ships:0,refK:null,sec};
+  const n=Math.ceil(sec/Math.max(10,sec/3000)),st=sec/n,floor=S.res.ore*.5;/* offline refining never uses more than half the ore you left with */for(let i=0;i<n;i++){const r=colonyStep(st,COLONY_OFFLINE_RATE,floor);tot.pop+=r.pop;tot.rp+=r.rp;tot.refIn+=r.refIn;tot.refOut+=r.refOut;tot.ships+=r.ships;if(r.refK)tot.refK=r.refK;}
+  return (tot.pop>=.5||tot.rp>=.5||tot.refIn>0||tot.ships>0)?tot:null;}
+function colonyLine(cg){if(!cg)return '';const L=[];if(cg.pop>=.5)L.push('+'+fmt(Math.floor(cg.pop))+' colonists');if(cg.rp>=.5)L.push('+'+fmt(Math.floor(cg.rp))+' research');if(cg.refIn>0)L.push('refined '+fmt(cg.refIn)+' ore → '+fmt(cg.refOut)+' '+RINFO[cg.refK].n.toLowerCase());if(cg.ships)L.push('+'+cg.ships+' fighter'+(cg.ships>1?'s':''));
+  return `<div class="gain"><div><b>Colony</b><div class="muted">(offline: half speed)</div></div><div class="costs" style="flex-direction:column;align-items:flex-end;font-size:12px">${L.map(x=>`<span>${x}</span>`).join('')}</div></div>`;}
+
+/* ================= colony view (canvas) ================= */
+const COLV={agents:[],pulse:{},shuttle:0,t:0};
+const ROOMS={hub:{x:.5,y:.5},hab:{x:.24,y:.27},trade:{x:.76,y:.27},lab:{x:.2,y:.7},ref:{x:.8,y:.7},yard:{x:.5,y:.83}};
+const tierOf=L=>L>=25?4:L>=10?3:L>=5?2:L>=1?1:0;
+function colonyViewOn(){return R.tab==='colony'&&!S.travel&&!inCombat()&&CO().on;}
+function deckGeo(){const s=Math.min(W,H*1.05),ox=(W-s)/2,oy=(H-s*.95)/2;return {s,ox,oy,P:(n)=>({x:ox+n.x*s,y:oy+n.y*s*.95})};}
+function roomSize(k,g){const t=tierOf(colLv(k));return g.s*(k==='hub'?.12:.085+.018*t);}
+function builtRooms(){return COL_IDS.filter(k=>colLv(k)>0);}
+const JOBCOL={hab:'#7ad7ff',trade:'#ffd36b',lab:'#c9a4ff',ref:'#ff9f5a',yard:'#8dffb0'};
+function newAgent(){const rooms=builtRooms();const home=rooms[Math.floor(Math.random()*rooms.length)]||'hab';const a={at:home,x:ROOMS[home].x,y:ROOMS[home].y,path:[],state:'inside',t:Math.random()*3,col:JOBCOL[home],carry:false,spd:.05+Math.random()*.035,ph:Math.random()*TAU};return a;}
+function planAgent(a){const rooms=builtRooms();if(!rooms.length)return;let to;
+  if(Math.random()<.25){a.path=[{...ROOMS.hub,ix:(Math.random()-.5)*.09,iy:(Math.random()-.5)*.07}];a.dest='idle';}
+  else{to=rooms[Math.floor(Math.random()*rooms.length)];if(to===a.at&&rooms.length>1)to=rooms[(rooms.indexOf(to)+1)%rooms.length];
+    a.carry=(a.at==='ref'||a.at==='yard')&&to==='trade'||(a.at==='trade'&&Math.random()<.5);a.path=[{...ROOMS.hub,ix:(Math.random()-.5)*.05,iy:(Math.random()-.5)*.05},{...ROOMS[to],ix:0,iy:0}];a.dest=to;}
+  a.state='walk';}
+function updateAgents(dt){const want=Math.min(60,Math.floor(CO().pop));const A=COLV.agents;
+  while(A.length<want)A.push(newAgent());if(A.length>want)A.length=want;
+  for(const a of A){a.ph+=dt*9;
+    if(a.state==='inside'||a.state==='idle'){a.t-=dt;if(a.t<=0)planAgent(a);continue;}
+    const n=a.path[0];if(!n){a.state='idle';a.t=1;continue;}const tx=n.x+(n.ix||0),ty=n.y+(n.iy||0);const dx=tx-a.x,dy=ty-a.y,d=Math.hypot(dx,dy),st=a.spd*dt;
+    if(d<=st){a.x=tx;a.y=ty;a.path.shift();if(!a.path.length){if(a.dest==='idle'){a.state='idle';a.t=1+Math.random()*2.5;}else{a.at=a.dest;a.state='inside';a.t=2+Math.random()*4;a.carry=false;a.col=JOBCOL[a.at];}}}
+    else{a.x+=dx/d*st;a.y+=dy/d*st;}}}
+function drawRoom(k,g,t){const c=g.P(ROOMS[k]),L=colLv(k),r=roomSize(k,g),M=CMODS2[k];const tier=tierOf(L),sel=R.colSel===k;
+  if(L<1){ctx.setLineDash([5,5]);ctx.strokeStyle='rgba(140,160,230,.5)';ctx.lineWidth=1.5;ctx.strokeRect(c.x-r,c.y-r*.8,r*2,r*1.6);ctx.setLineDash([]);
+    ctx.fillStyle='rgba(140,160,230,.75)';ctx.font='700 10px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText(M.name,c.x,c.y-2);ctx.fillStyle='rgba(140,160,230,.55)';ctx.fillText(colGateOk(k)?'Tap to build':'Needs '+MOD_GATE[k]+' colonists',c.x,c.y+11);return;}
+  const pl=COLV.pulse[k]||0;if(pl>0)COLV.pulse[k]=Math.max(0,pl-.02);
+  ctx.save();ctx.translate(c.x,c.y);
+  ctx.shadowColor=M.col;ctx.shadowBlur=sel?18:6+pl*20;ctx.fillStyle='#182250';rr(-r,-r*.8,r*2,r*1.6,8);ctx.fill();ctx.shadowBlur=0;
+  ctx.strokeStyle=sel?'#fff':M.col;ctx.lineWidth=sel?2.5:1.5;rr(-r,-r*.8,r*2,r*1.6,8);ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.05)';for(let i=-r+6;i<r;i+=10)ctx.fillRect(i,-r*.8+3,1,r*1.6-6);
+  if(k==='hab'){const n=1+tier;for(let i=0;i<n;i++){const dx=(i-(n-1)/2)*(r*1.6/Math.max(1,n)),rad=r*(.32-.03*tier);ctx.fillStyle='#24407a';ctx.beginPath();ctx.arc(dx,0,rad,0,TAU);ctx.fill();ctx.strokeStyle='#7ad7ff';ctx.lineWidth=1;ctx.stroke();
+      for(let w=0;w<3;w++){ctx.fillStyle=(Math.sin(t*.7+i*3+w*2)>-.6)?'#ffe9a8':'#33406a';ctx.fillRect(dx-rad*.55+w*rad*.42,-rad*.2,rad*.25,rad*.25);}}}
+  else if(k==='trade'){ctx.strokeStyle='#ffd36b';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,r*.5,0,TAU);ctx.stroke();ctx.fillStyle='rgba(255,211,107,.15)';ctx.fill();ctx.font='900 '+Math.round(r*.45)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#ffd36b';ctx.fillText('$',0,1);ctx.textBaseline='alphabetic';
+    for(let i=0;i<tier;i++){ctx.fillStyle='#c08a3a';ctx.fillRect(-r*.9+i*7,r*.45,6,6);}
+    const sp=(t*.25)%1,sx=lerp(-r*2.2,0,clamp(sp*2,0,1)),sy=-r*.1;if(sp<.75){ctx.fillStyle='#dfe6ff';ctx.beginPath();ctx.moveTo(sx+8,sy);ctx.lineTo(sx-6,sy-5);ctx.lineTo(sx-6,sy+5);ctx.fill();if(sp<.5){ctx.fillStyle='#ffb14a';ctx.fillRect(sx-10,sy-1.5,4,3);}}}
+  else if(k==='lab'){ctx.fillStyle='#2c2060';ctx.beginPath();ctx.arc(0,0,r*.45,0,TAU);ctx.fill();const a=t*1.2;ctx.strokeStyle='#c9a4ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(0,0,r*.45,a,a+2);ctx.stroke();ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*r*.6,Math.sin(a)*r*.6);ctx.stroke();
+    for(let i=0;i<tier;i++){ctx.fillStyle=Math.sin(t*3+i)>0?'#c9a4ff':'#5a4a99';ctx.beginPath();ctx.arc(-r*.8+i*8,-r*.55,2.5,0,TAU);ctx.fill();}}
+  else if(k==='ref'){const n=1+Math.min(3,tier);for(let i=0;i<n;i++){const dx=(i-(n-1)/2)*r*.5;ctx.fillStyle='#4a2a1a';ctx.beginPath();ctx.arc(dx,0,r*.2,0,TAU);ctx.fill();ctx.strokeStyle='#ff9f5a';ctx.stroke();
+      const on=CO().refOut!=='off';ctx.fillStyle=on?`rgba(255,159,90,${.5+.4*Math.sin(t*4+i)})`:'#55331f';ctx.beginPath();ctx.arc(dx,0,r*.1,0,TAU);ctx.fill();}
+    if(CO().refOut!=='off'&&Math.random()<.15)spawn(c.x+(Math.random()-.5)*r,c.y-r*.7,(Math.random()-.5)*8,-18,1.2,'rgba(200,190,180,.5)',3);}
+  else if(k==='yard'){ctx.strokeStyle='#8dffb0';ctx.lineWidth=1.5;ctx.strokeRect(-r*.7,-r*.5,r*1.4,r);const pr=shipCap()>CO().ships?CO().yt/shipTime():1;
+    ctx.fillStyle='rgba(141,255,176,.25)';ctx.beginPath();ctx.moveTo(r*.45,0);ctx.lineTo(-r*.4,-r*.32);ctx.lineTo(-r*.25,0);ctx.lineTo(-r*.4,r*.32);ctx.closePath();ctx.fill();
+    ctx.save();ctx.beginPath();ctx.rect(-r*.7,-r*.5,r*1.4*clamp(pr,0,1),r);ctx.clip();ctx.fillStyle='#8dffb0';ctx.beginPath();ctx.moveTo(r*.45,0);ctx.lineTo(-r*.4,-r*.32);ctx.lineTo(-r*.25,0);ctx.lineTo(-r*.4,r*.32);ctx.closePath();ctx.fill();ctx.restore();
+    if(pr<1&&Math.random()<.3)spawn(c.x+(Math.random()-.5)*r,c.y+(Math.random()-.5)*r*.5,0,0,.25,'#fff7b0',2);}
+  ctx.restore();
+  ctx.font='800 11px system-ui,sans-serif';ctx.textAlign='center';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.75)';const lb=M.name+' · '+L;ctx.strokeText(lb,c.x,c.y+r*.8+13);ctx.fillStyle='#e8ecff';ctx.fillText(lb,c.x,c.y+r*.8+13);}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function drawColony(dt,t){const g=deckGeo(),c=CO();updateAgents(dt);
+  // deck plate
+  const hc=g.P(ROOMS.hub);ctx.save();ctx.fillStyle='#0b1130';ctx.strokeStyle='#26306a';ctx.lineWidth=2;ctx.beginPath();for(let i=0;i<8;i++){const a=i/8*TAU+TAU/16;const px=hc.x+Math.cos(a)*g.s*.49,py=hc.y+Math.sin(a)*g.s*.47;i?ctx.lineTo(px,py):ctx.moveTo(px,py);}ctx.closePath();ctx.fill();ctx.stroke();ctx.clip();
+  ctx.strokeStyle='rgba(90,110,200,.08)';ctx.lineWidth=1;for(let x=g.ox;x<g.ox+g.s;x+=18){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}for(let y=0;y<H;y+=18){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}ctx.restore();
+  // corridors
+  for(const k of COL_IDS){const p=g.P(ROOMS[k]),on=colLv(k)>0;ctx.strokeStyle=on?'#1d2a5e':'rgba(40,50,100,.5)';ctx.lineWidth=on?14:8;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(hc.x,hc.y);ctx.lineTo(p.x,p.y);ctx.stroke();
+    if(on){ctx.strokeStyle='rgba(120,180,255,.35)';ctx.lineWidth=1.2;ctx.setLineDash([3,7]);ctx.lineDashOffset=-t*20;ctx.beginPath();ctx.moveTo(hc.x,hc.y);ctx.lineTo(p.x,p.y);ctx.stroke();ctx.setLineDash([]);}}
+  // hub
+  const hr=roomSize('hub',g);ctx.fillStyle='#1a2558';ctx.beginPath();ctx.arc(hc.x,hc.y,hr,0,TAU);ctx.fill();ctx.strokeStyle=R.colSel==='hub'?'#fff':'#5f7bff';ctx.lineWidth=2;ctx.stroke();
+  ctx.strokeStyle='rgba(95,123,255,.5)';ctx.beginPath();ctx.arc(hc.x,hc.y,hr*.65,t*.5,t*.5+4.5);ctx.stroke();ctx.fillStyle='#cfd8ff';ctx.font='800 10px system-ui';ctx.textAlign='center';ctx.fillText('COMMAND',hc.x,hc.y+3);
+  for(const k of COL_IDS)drawRoom(k,g,t);
+  // colonists
+  for(const a of COLV.agents){if(a.state==='inside')continue;const p=g.P(a),bob=a.state==='walk'?Math.sin(a.ph)*1.2:0;
+    ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(p.x,p.y+3,3,1.5,0,0,TAU);ctx.fill();
+    ctx.fillStyle=a.col;ctx.fillRect(p.x-2,p.y-3+bob,4,5);ctx.fillStyle='#ffe0c2';ctx.beginPath();ctx.arc(p.x,p.y-5+bob,2,0,TAU);ctx.fill();
+    if(a.carry){ctx.fillStyle='#c08a3a';ctx.fillRect(p.x-3,p.y-11+bob,6,4);}}
+  drawFx(dt);
+  // header
+  ctx.font='800 13px system-ui,sans-serif';ctx.textAlign='left';ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,.7)';const h='Colony · '+fmt(Math.floor(c.pop))+' / '+fmt(Math.floor(popCap()))+' colonists';ctx.strokeText(h,10,20);ctx.fillStyle='#fff';ctx.fillText(h,10,20);
+  ctx.font='600 11px system-ui,sans-serif';const h2='+'+(popBonus()*100).toFixed(1)+'% production'+(rpRate()>0?' · '+fmt(Math.floor(c.rp))+' RP':'');ctx.strokeText(h2,10,36);ctx.fillStyle='#9fb0ff';ctx.fillText(h2,10,36);}
+function colonyTap(x,y){const g=deckGeo();let best=null,bd=1e9;for(const k of ['hub',...COL_IDS]){const p=g.P(ROOMS[k]),r=Math.max(34,roomSize(k,g)*1.1),d=Math.hypot(p.x-x,p.y-y);if(d<r&&d<bd){bd=d;best=k;}}
+  if(!best)return;R.colSel=R.colSel===best&&best!=='hub'?best:best;sfx('tap');renderPanel();const card=document.querySelector('[data-col="'+best+'"]');if(card)card.scrollIntoView({block:'start',behavior:'smooth'});}
+
+/* ================= colony panel ================= */
+const COL_SVG={hab:'<path d="M4 20V11l8-6 8 6v9z"/><path d="M10 20v-5h4v5"/>',trade:'<path d="M4 8h13l-3-3M20 16H7l3 3"/>',lab:'<path d="M9 3h6M10 3v6l-5 10h14L14 9V3"/>',ref:'<rect x="4" y="8" width="6" height="12" rx="2"/><rect x="14" y="5" width="6" height="15" rx="2"/><path d="M10 14h4"/>',yard:'<path d="M3 20h18M6 20V8l6-4 6 4v12M9 12h6"/>'};
+function spark(k){const now=Date.now(),pts=[];let mn=1e9,mx=-1e9;for(let i=0;i<40;i++){const v=priceAt(k,now-(39-i)*30000);pts.push(v);mn=Math.min(mn,v);mx=Math.max(mx,v);}
+  const w=90,h=22,d=pts.map((v,i)=>`${(i/39*w).toFixed(1)},${(h-(v-mn)/(mx-mn||1)*h).toFixed(1)}`).join(' ');const up=pts[39]>=pts[30];
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block"><polyline points="${d}" fill="none" stroke="${up?'#8dffb0':'#ff9aa8'}" stroke-width="1.6"/></svg>`;}
+function pColony(pn){
+  if(!colonyUnlocked()){pn.appendChild(el('div','card','<div class="title">Station Colony</div><div class="sub">Build your first outpost to open the colony deck on your station.</div>'));return;}
+  ensureColony();const c=CO();
+  const sm=el('div','card');sm.dataset.col='hub';live(sm,e=>setHTML(e,`<div class="row"><div class="grow"><div class="title">Station Colony</div><div class="sub">${fmt(Math.floor(c.pop))} / ${fmt(Math.floor(popCap()))} colonists · +${(popBonus()*100).toFixed(1)}% to all production · crew efficiency ×${crew().toFixed(2)}</div></div></div><div class="bar" style="margin-top:6px"><div style="width:${(clamp(c.pop/Math.max(1,popCap()),0,1)*100).toFixed(1)}%;background:#7ad7ff"></div></div><div class="muted" style="margin-top:5px">${c.pop>=popCap()-.01?'Habitats full: upgrade Habitats for more room':'Growing +'+(popGrowth()*60).toFixed(1)+'/min'}. The colony keeps working while you are away at half speed. Tap a room on the deck to manage it.</div>`));pn.appendChild(sm);
+  for(const k of COL_IDS){const M=CMODS2[k];const card=el('div','card'+(R.colSel===k?' sel':''));card.dataset.col=k;if(R.colSel===k)card.style.borderColor=M.col;
+    const r=el('div','row');const ic=el('div','icon',`<svg viewBox="0 0 24 24" style="stroke:${M.col}">${COL_SVG[k]}</svg>`);r.appendChild(ic);
+    const info=el('div','grow');info.style.cursor='pointer';live(info,e=>setHTML(e,`<div class="title" style="font-size:14px">${M.name}<span class="lv">${colLv(k)?'Lv '+colLv(k):'NEW'}</span></div><div class="sub">${colGateOk(k)?M.eff():'Needs '+MOD_GATE[k]+' colonists ('+fmt(Math.floor(c.pop))+' now)'}</div>`));
+    info.onclick=ic.onclick=()=>{R.colSel=R.colSel===k?null:k;renderPanel();};r.appendChild(info);
+    r.appendChild(btn('',()=>{const b=bulk(M.cost,colLv(k));return (colLv(k)?'Upgrade +':'Build +')+b.n;},()=>bulk(M.cost,colLv(k)).c,()=>buyCol(k),()=>colGateOk(k)&&canAfford(bulk(M.cost,colLv(k)).c)));
+    card.appendChild(r);if(R.colSel===k&&colLv(k)>0)card.appendChild(colDetail(k));pn.appendChild(card);}
+}
+function colDetail(k){const d=el('div','');d.style.marginTop='8px';const c=CO();
+  if(k==='hab'){live(d,e=>setHTML(e,`<div class="muted">Colonists boost all production (+${(popBonus()*100).toFixed(1)}% now, up to +40%) and staff your modules (crew ×${crew().toFixed(2)} on research, refining and ship building). Next milestone look at Lv ${[5,10,25].find(x=>x>colLv('hab'))||'∞'}.</div>`));}
+  if(k==='trade'){R.tFrom=R.tFrom||'ore';R.tTo=R.tTo||'crystal';const ks=tradeRes();if(!ks.includes(R.tFrom))R.tFrom='ore';if(!ks.includes(R.tTo))R.tTo='crystal';
+    const pr=el('div','');live(pr,e=>setHTML(e,`<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center">${ks.map(x=>`<span class="c"><i style="background:${RINFO[x].c}"></i>${RINFO[x].n}</span>${spark(x)}<b style="font-size:12px;color:#fff">${(price(x)/TVAL[x]*100).toFixed(0)}%</b>`).join('')}</div><div class="muted" style="margin-top:4px">Prices drift over time (shown vs. normal value, last 20 min). Fee ${(tradeFee()*100).toFixed(1)}% (lower with upgrades).</div>`));d.appendChild(pr);
+    const seg=(lab,key)=>{const w=el('div','');w.appendChild(el('div','muted',lab));const s=el('div','seg');for(const x of ks){const b=el('button',R[key]===x?'on':'',RINFO[x].n);b.onclick=()=>{R[key]=x;if(R.tFrom===R.tTo)R[key==='tFrom'?'tTo':'tFrom']=ks.find(y=>y!==x);renderPanel();};s.appendChild(b);}w.appendChild(s);w.style.marginTop='6px';return w;};
+    d.appendChild(seg('Sell','tFrom'));d.appendChild(seg('Buy','tTo'));
+    const q=el('div','muted');q.style.marginTop='6px';live(q,e=>setHTML(e,`Rate: 1 ${RINFO[R.tFrom].n} → <b style="color:#fff">${tradeQuote(R.tFrom,R.tTo,1).toPrecision(3)}</b> ${RINFO[R.tTo].n} · volume left ${fmt(c.tv)} / ${fmt(tvMax())} (refills hourly)${R.tTo==='exotic'?` · exotic import quota ${fmt(c.exq)} / ${fmt(exqMax())}`:''}<br>Salvage can't be traded: earn it in battle.`));d.appendChild(q);
+    const bs=el('div','btns');for(const f of [.1,.25,.5])bs.appendChild(btn('',()=>'Sell '+(f*100)+'%',null,()=>{doTrade(R.tFrom,R.tTo,f);renderPanel();},()=>S.res[R.tFrom]>0&&c.tv>=1&&!(R.tTo==='exotic'&&c.exq<=0)));d.appendChild(bs);}
+  if(k==='lab'){const h=el('div','muted');live(h,e=>setHTML(e,`<b style="color:#fff">${fmt(Math.floor(c.rp))} RP</b> · +${rpRate().toFixed(2)}/s · perks are permanent and carry across galaxy jumps.`));d.appendChild(h);
+    for(const p in PERKS){const P0=PERKS[p];const r=el('div','row');r.style.marginTop='6px';const inf=el('div','grow');live(inf,e=>setHTML(e,`<div style="font-weight:700;font-size:13px">${P0.name}<span class="lv">Lv ${perk(p)}${P0.max?'/'+P0.max:''}</span></div><div class="muted">${P0.d}</div>`));r.appendChild(inf);
+      r.appendChild(btn('',()=>P0.max&&perk(p)>=P0.max?'MAX':'Research · '+fmt(perkCost(p))+' RP',null,()=>buyPerk(p),()=>!(P0.max&&perk(p)>=P0.max)&&c.rp>=perkCost(p)));d.appendChild(r);}}
+  if(k==='ref'){const h=el('div','muted');live(h,e=>setHTML(e,`Uses ${fmt(refThroughput())} ore/s (needs ore in stock). Output per ore: crystal ×0.5, gas ×0.5${S.galaxy>=1?', exotic ×0.05':''}. Refined so far: ${fmt(c.refined)} ore. While you are away it never uses more than half your ore.`));d.appendChild(h);
+    const s=el('div','seg');s.style.marginTop='6px';for(const x of refOptions()){const b=el('button',c.refOut===x?'on':'',x==='off'?'Off':RINFO[x].n);b.onclick=()=>{c.refOut=x;save();renderPanel();};s.appendChild(b);}d.appendChild(s);}
+  if(k==='yard'){live(d,e=>setHTML(e,`<div class="muted">Builds extra fighters that join your Fighter Wing in every battle (Father Ship included). Capacity: 2 per level, but never more than a quarter of your Fighter Wing (${shipCap()} now). ${CO().ships<shipCap()?'Next fighter in '+fmtClock(Math.max(0,shipTime()-c.yt)):'Docks full.'}</div><div class="bar" style="margin-top:5px"><div style="width:${(CO().ships<shipCap()?clamp(c.yt/shipTime(),0,1)*100:100).toFixed(1)}%;background:#8dffb0"></div></div>`));}
+  return d;}
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -911,13 +1098,14 @@ const TABS=[['station','Station','<circle cx="12" cy="12" r="3"/><circle cx="12"
   ['outposts','Outposts','<path d="M3 19h18M6 19a6 6 0 0 1 12 0M12 13V6l4 2-4 2"/>'],
   ['map','Map','<circle cx="6" cy="7" r="2.2"/><circle cx="17" cy="8" r="3"/><circle cx="10" cy="17.5" r="2.5"/><path d="M8 7.5l6 .5M15.5 10.5l-4 5" stroke-dasharray="2 2"/>'],
   ['galaxy','Galaxy','<path d="M12 12m-1.5 0a1.5 1.5 0 1 0 3 0a3.5 3.5 0 1 0 -7 0a5.5 5.5 0 1 0 11 0a7.5 7.5 0 1 0 -15 0"/>'],
+  ['colony','Colony','<path d="M3 20h18M5 20v-7l4-3 4 3v7M13 20V9l3-3 3 3v11"/><circle cx="9" cy="16" r="1"/>'],
   ['more','More','<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>']];
 function renderTabs(){const n=$('#tabs');n.innerHTML='';for(const [id,label,svg] of TABS){const b=el('button',R.tab===id?'on':'',`<svg viewBox="0 0 24 24">${svg}</svg><span>${label}</span><i class="badge" data-b="${id}"></i>`);b.addEventListener('click',()=>{R.tab=id;if(id==='more')S.seenAch=achCount();renderTabs();renderPanel();$('#panel').scrollTop=0;});n.appendChild(b);}updateBadges();}
 function updateBadges(){const set=(id,on)=>{const b=document.querySelector(`[data-b="${id}"]`);if(b)b.classList.toggle('show',!!on);};
   set('outposts',Object.keys(S.outposts).some(pi=>stored(S.outposts[pi])>=outCap(pi)*.9)||(!S.outposts[S.at]&&!S.travel&&canAfford(buildCost(S.at))));
   set('map',!!C.oraid);
-  set('galaxy',(canAfford(jumpCost())&&fatherBeaten())||fatherCanChallenge());set('more',achCount()>(S.seenAch||0));}
-function renderPanel(){UPD=[];const pn=$('#panel');pn.innerHTML='';({station:pStation,outposts:pOutposts,map:pMap,galaxy:pGalaxy,more:pMore})[R.tab](pn);updateBadges();}
+  set('galaxy',(canAfford(jumpCost())&&fatherBeaten())||fatherCanChallenge());set('more',achCount()>(S.seenAch||0));set('colony',colonyUnlocked()&&(!S.colony.on||COL_IDS.some(k=>colLv(k)===0&&colGateOk(k)&&canAfford(CMODS2[k].cost(0)))));}
+function renderPanel(){UPD=[];const pn=$('#panel');pn.innerHTML='';({station:pStation,outposts:pOutposts,map:pMap,galaxy:pGalaxy,colony:pColony,more:pMore})[R.tab](pn);updateBadges();}
 function runUpd(){for(const f of UPD)f();}
 function buyModeSeg(){const sg=el('div','seg');for(const m of[1,10,'max']){const b=el('button',S.buyMode===m?'on':'',m==='max'?'MAX':'×'+m);b.addEventListener('click',()=>{S.buyMode=m;renderPanel();});sg.appendChild(b);}return sg;}
 function buildCard(){
@@ -990,7 +1178,7 @@ function pMap(pn){
 }
 function pGalaxy(pn){
   const c=el('div','card');c.innerHTML=`<div class="title">${GAL.name}</div><div class="sub">Galaxy #${S.galaxy+1} · ${P.length} planets · planet richness ×${fmt(gRich())}</div>`;
-  const e2=el('div','muted');e2.style.marginTop='6px';live(e2,e=>setHTML(e,`Empire bonus: <b style="color:#fff">×${empire().toFixed(2)}</b> (×${1+S.galaxy} galaxies, +${achCount()*3}% achievements) — applies to everything.`));c.appendChild(e2);pn.appendChild(c);
+  const e2=el('div','muted');e2.style.marginTop='6px';live(e2,e=>setHTML(e,`Empire bonus: <b style="color:#fff">×${empire().toFixed(2)}</b> (×${1+S.galaxy} galaxies, +${achCount()*3}% achievements${S.colony&&S.colony.on?`, ×${colonyMult().toFixed(2)} colony`:''}) — applies to everything.`));c.appendChild(e2);pn.appendChild(c);
   const j=el('div','card hl');
   j.innerHTML=`<div class="title">Intergalactic Jump</div><div class="sub">Fold space to a brand-new procedurally generated galaxy. New planets are ×4 richer and your Empire bonus grows to ×${2+S.galaxy}. Your station modules and resources come with you; every outpost ships its stored cargo to you, then is left behind for the new frontier (new outposts cost more).${S.galaxy===0?' Exotic matter appears from the next galaxy on.':''}</div>`;
   const prog=el('div');live(prog,e=>{const cst=jumpCost();setHTML(e,Object.keys(cst).map(k=>{const f=clamp(S.res[k]/cst[k],0,1);return `<div class="row" style="margin-top:6px;font-size:12px"><span class="c" style="width:80px"><i style="background:${RINFO[k].c}"></i>${RINFO[k].n}</span><div class="bar grow"><div style="width:${(f*100).toFixed(1)}%;background:${RINFO[k].c}"></div></div><span style="width:110px;text-align:right">${fmt(S.res[k])} / ${fmt(cst[k])}</span></div>`;}).join(''));});j.appendChild(prog);
@@ -1004,7 +1192,7 @@ function pGalaxy(pn){
 function pMore(pn){
   pn.appendChild(el('div','h',`Achievements (${achCount()}/${ACH.length}) · +3% production each`));
   const g=el('div','ach');for(const [id,n,d] of ACH)g.appendChild(el('div',S.ach[id]?'done':'',`<b>${S.ach[id]?'★ ':''}${n}</b><span>${d}</span>`));pn.appendChild(g);
-  pn.appendChild(el('div','h','Stats'));const st=el('div','card');live(st,e=>{const s=S.stats;setHTML(e,[['Play time',fmtTime(s.play)],['Planet taps',fmt(s.taps)],['Trips',fmt(s.trips)],['Asteroids smashed',fmt(s.rocks)],['Outposts built',fmt(s.built)],['Pirates destroyed',fmt(s.kills||0)],['Raids repelled',fmt(s.raidsWon||0)],['Father Ships',fmt(s.fathers||0)],['Critical hits',fmt(s.crits||0)],['Biggest crit',fmt(s.bestCrit||0)],['Best kill combo',fmt(s.bestCombo||0)],...RES.map(k=>['Total '+RINFO[k].n.toLowerCase(),fmt(s.earned[k]||0)])].map(([a,b])=>`<div class="stat"><span>${a}</span><b>${b}</b></div>`).join(''));});pn.appendChild(st);
+  pn.appendChild(el('div','h','Stats'));const st=el('div','card');live(st,e=>{const s=S.stats;setHTML(e,[['Play time',fmtTime(s.play)],['Planet taps',fmt(s.taps)],['Trips',fmt(s.trips)],['Asteroids smashed',fmt(s.rocks)],['Outposts built',fmt(s.built)],['Pirates destroyed',fmt(s.kills||0)],['Raids repelled',fmt(s.raidsWon||0)],['Father Ships',fmt(s.fathers||0)],['Critical hits',fmt(s.crits||0)],['Biggest crit',fmt(s.bestCrit||0)],['Colonists',fmt(Math.floor(S.colony.pop))],['Research earned',fmt(Math.floor(S.colony.rpTotal))],['Ore refined',fmt(S.colony.refined)],['Best kill combo',fmt(s.bestCombo||0)],...RES.map(k=>['Total '+RINFO[k].n.toLowerCase(),fmt(s.earned[k]||0)])].map(([a,b])=>`<div class="stat"><span>${a}</span><b>${b}</b></div>`).join(''));});pn.appendChild(st);
   pn.appendChild(el('div','h','Settings'));const sc=el('div','card');
   sc.appendChild(el('div','muted','Progress is saved automatically in this browser. Use export/import to move your save to another device.'));
   const bs=el('div','btns');
@@ -1023,14 +1211,15 @@ function confirmBox(t,msg,fn){modal(`<h2>${t}</h2><p>${msg}</p>`,[['Cancel','gho
 function b64enc(s){const bytes=new TextEncoder().encode(s);let bin='';for(let i=0;i<bytes.length;i++)bin+=String.fromCharCode(bytes[i]);return btoa(bin);}
 function b64dec(s){const bin=atob(s.trim());const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new TextDecoder().decode(bytes);}
 function exportBox(){save();const str='PH1:'+b64enc(JSON.stringify(S));modal(`<h2>Export save</h2><p>Copy this string and keep it somewhere safe.</p><textarea readonly id="exp">${str}</textarea>`,[['Copy','',()=>{const t=$('#exp');t.select();try{navigator.clipboard.writeText(str).then(()=>toast('Copied!','good'),()=>document.execCommand('copy'));}catch(_){try{document.execCommand('copy');}catch(__){}}return true;}],['Close','ghost']]);}
-function importBox(){modal(`<h2>Import save</h2><p>Paste an exported save string. This replaces your current progress.</p><textarea id="imp" placeholder="PH1:..."></textarea><p id="imperr" style="color:#ff8a8a"></p>`,[['Cancel','ghost'],['Import','',()=>{try{let v=$('#imp').value.trim();if(v.startsWith('PH1:'))v=v.slice(4);const o=sanitize(JSON.parse(b64dec(v)));S=o;setWorld();const snap=snapshot(),away=(Date.now()-S.clock)/1000;accrueOutposts(Date.now());save();R.tab='station';renderTabs();renderPanel();toast('Save imported','good');if(away>30){const gn=diffSnap(snap),rd=offlineRaids(away);setTimeout(()=>welcomeBack(away,gn,rd),50);}return false;}catch(e){$('#imperr').textContent='That save string could not be read.';return true;}}]]);}
+function importBox(){modal(`<h2>Import save</h2><p>Paste an exported save string. This replaces your current progress.</p><textarea id="imp" placeholder="PH1:..."></textarea><p id="imperr" style="color:#ff8a8a"></p>`,[['Cancel','ghost'],['Import','',()=>{try{let v=$('#imp').value.trim();if(v.startsWith('PH1:'))v=v.slice(4);const o=sanitize(JSON.parse(b64dec(v)));S=o;setWorld();const snap=snapshot(),away=(Date.now()-S.clock)/1000;accrueOutposts(Date.now());save();R.tab='station';renderTabs();renderPanel();toast('Save imported','good');if(away>30){const gn=diffSnap(snap),rd=offlineRaids(away),cg=colonyOffline(away);setTimeout(()=>welcomeBack(away,gn,rd,cg),50);}return false;}catch(e){$('#imperr').textContent='That save string could not be read.';return true;}}]]);}
 function resetGame(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}S=newState();setWorld();parts.length=0;rocks.length=0;R.sel=null;R.tab='station';renderTabs();renderPanel();save();intro();}
-function welcomeBack(secs,gains,raids){
+function welcomeBack(secs,gains,raids,cg){
   raids=raids||{};const rows=gains.filter(g=>g.any>0||g.full||raids[g.pi]);
+  if(!rows.length&&cg){modal(`<h2>Welcome back, Commander</h2><p>You were away <b>${fmtTime(secs)}</b>. Your station idled, but the colony kept busy:</p>`+colonyLine(cg),[['Nice!','alt']]);return;}
   if(!rows.length){if(secs>120)toast('Welcome back! Build outposts to earn while you are away.','');return;}
   modal(`<h2>Welcome back, Commander</h2><p>You were away <b>${fmtTime(secs)}</b>. Your station idled (it only mines while the game is open), but your outposts kept working:</p>`+
     rows.map(g=>`<div class="gain"><div><b>${P[g.pi].name}</b>${g.full?'<span class="tag">FULL</span>':''}<div class="muted">Lv ${S.outposts[g.pi].lvl} · ${fmt(outRate(g.pi))}/s</div></div><div class="costs">${RES.filter(k=>g.g[k]>0).map(k=>`<span class="c"><i style="background:${RINFO[k].c}"></i>+${fmt(g.g[k])}</span>`).join('')}</div></div>${raidLine(raids[g.pi])}`).join('')+
-    `<p class="muted">Resources are waiting in outpost storage — travel to each planet to collect them.${rows.some(g=>g.full)?' Full outposts stop producing: upgrade storage to hold more.':''}</p>`,
+    colonyLine(cg)+`<p class="muted">Resources are waiting in outpost storage — travel to each planet to collect them.${rows.some(g=>g.full)?' Full outposts stop producing: upgrade storage to hold more.':''}</p>`,
     [['Nice!','alt',()=>{if(S.outposts[S.at]&&!S.travel)collect(S.at);}]]);
 }
 function raidLine(r){if(!r)return '';const parts=[];if(r.repelled)parts.push(`<span style="color:#8dffc0">Repelled ${r.repelled} raid${r.repelled>1?'s':''}, +${fmt(r.salvage)} salvage</span>`);const lostN=r.raids-r.repelled;if(lostN)parts.push(`<span style="color:#ff9aa8">Raided ${lostN}×: lost ${(r.base>0?r.lostTotal/r.base*100:0).toFixed(1)}% of stored loot</span>`);return `<div class="muted" style="padding:0 0 6px;border-bottom:1px dashed #26306a;margin-top:-4px">Pirates: ${parts.join(' · ')}</div>`;}
@@ -1064,12 +1253,13 @@ function frame(ts){
     if(!document.hidden){
       S.stats.play+=dt;
       C.grace=Math.max(0,C.grace-dt);
-      updateOutpostRaid(dt);
+      updateOutpostRaid(dt);ensureColony();colonyStep(dt,1);
       if(!S.travel){addSplit(stationRate()*dt,P[S.at].w);if(laserOwned())S.laserCharge=Math.min(chargeTime(),S.laserCharge+dt*(inCombat()?3:1));if(R.tab!=='map')updateCombat(dt,t);} // station & Super Laser: only while visible
       if(!inCombat())R.evtT-=dt;if(R.evtT<=0){R.evtT=70+Math.random()*90;if(!S.travel){if(Math.random()<.62){R.showerUntil=t+14;R.nextRock=t;toast('Asteroid shower incoming!','gold');}else{flareUntil=performance.now()+30000;toast('Solar flare! Station output ×3 for 30s','gold');}}}
-      if(t<R.showerUntil&&t>=R.nextRock&&!S.travel&&R.tab!=='map'){spawnRock();R.nextRock=t+.9+Math.random()*.8;}
+      if(t<R.showerUntil&&t>=R.nextRock&&!S.travel&&R.tab!=='map'&&R.tab!=='colony'){spawnRock();R.nextRock=t+.9+Math.random()*.8;}
     }
     if(R.tab==='map'){drawBackground(dt,.0015);drawMap(t);}
+    else if(colonyViewOn()){drawBackground(dt,.0015);drawColony(dt,t);}
     else if(S.travel){drawBackground(dt,1.2);drawTravel(dt,t);drawFx(dt);}
     else{const sh=C.shake;if(sh>0){ctx.save();ctx.translate((Math.random()-.5)*sh*2,(Math.random()-.5)*sh*2);}drawBackground(dt,.003);drawOrbit(dt,t);drawFx(dt);if(sh>0)ctx.restore();}
     if(R.tab==='map'&&R.warpFlash>0)drawFx(dt);
@@ -1084,7 +1274,7 @@ let hiddenAt=0,hiddenSnap=null;
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden){save();hiddenAt=Date.now();hiddenSnap=snapshot();}
   else{const now=Date.now();accrueOutposts(now);lastT=performance.now();C.grace=Math.max(C.grace,30);
-    if(hiddenAt&&now-hiddenAt>60000&&hiddenSnap){const sec=(now-hiddenAt)/1000,gains=diffSnap(hiddenSnap),rd=offlineRaids(sec);welcomeBack(sec,gains,rd);}hiddenAt=0;hiddenSnap=null;}
+    if(hiddenAt&&now-hiddenAt>60000&&hiddenSnap){const sec=(now-hiddenAt)/1000,gains=diffSnap(hiddenSnap),rd=offlineRaids(sec),cg=colonyOffline(sec);welcomeBack(sec,gains,rd,cg);}else if(hiddenAt)colonyOffline((now-hiddenAt)/1000);hiddenAt=0;hiddenSnap=null;}
 });
 window.addEventListener('pagehide',save);window.addEventListener('beforeunload',save);
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
@@ -1116,11 +1306,12 @@ S=load();const fresh=!S;if(!S)S=newState();setWorld();C.hp=maxHull();
 buildTop();resize();new ResizeObserver(resize).observe(view);window.addEventListener('resize',resize);
 renderTabs();renderPanel();
 {const now=Date.now(),snap=snapshot(),away=(now-S.clock)/1000;accrueOutposts(now);updateTravel(now);
-  const gains=diffSnap(snap),rd=fresh?{}:offlineRaids(away);if(fresh)intro();else if(away>30)welcomeBack(away,gains,rd);
-  if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}S.lastVer=6;
+  const gains=diffSnap(snap),rd=fresh?{}:offlineRaids(away),cg=fresh?null:colonyOffline(away);if(fresh)intro();else if(away>30)welcomeBack(away,gains,rd,cg);
+  if(!fresh&&(S.lastVer||5)<7){setTimeout(()=>toast('Updated! New Colony tab: build Habitats, a Trade Station, Research Lab, Refinery and Shipyard on your station, and watch your colonists move in. The colony keeps working offline at half speed.','gold'),(S.lastVer||5)<6?5200:2200);}
+  if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}S.lastVer=7;
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 updTop();requestAnimationFrame(frame);
-window.PH={comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R};
+window.PH={colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R};
 })();
 </script>
 </body>
