@@ -2520,6 +2520,107 @@ function standingLine(id){const r=(S.faction.rep[id]||0),h=isHostile(id);if(h)re
 window.__PH12={newWar,sanitizeWar,newMuseum,sanitizeMuseum,newStory,sanitizeStory,warEnergy,spendWarEnergy,nextWarEnergyIn,warBlock,startFrontline,planetOwner,warTick,ensureWar,hurtRep,isHostile,museumPerk,museumSetDone,grantMuseumPiece,rollMuseumDrop,tryMuseumDrop,storyBeat,dockMoon,undockMoon,moonDocked,canDockMoon,moonDockBoost,MUSEUM_SETS,STORY_BEATS,WAR_EN_MAX,WAR_EN_T,applyWarWin,applyWarLoss,pushFront,standingLine,warBias};
 
 console.log('v12 faction-wars module loaded');
+/* ================= v13: Exotic Extra Strike · Stellaris territory borders ================= */
+const EXOTIC_STRIKE_BASE=0.25;     /* × shotCost(); Moon Laser is 0.45× — lasers stay the big sinks */
+const EXOTIC_STRIKE_RANK=0.10;     /* +10% per rank above 1 */
+const EXOTIC_STRIKE_DAY=0.35;      /* +35% per prior strike today */
+const EXOTIC_STRIKE_CAP=4;         /* UTC soft daily cap */
+
+(function(){
+  const _ns=newState;newState=function(){const s=_ns();s.lastVer=13;return s;};
+  const _sw=sanitizeWar;sanitizeWar=function(o){const w=_sw(o);w.exoticDay=Number.isFinite(+((o||{}).exoticDay))?+o.exoticDay:0;w.exoticStrikes=Math.max(0,Math.floor(+((o||{}).exoticStrikes)||0));return w;};
+  const _nw=newWar;newWar=function(){const w=_nw();w.exoticDay=0;w.exoticStrikes=0;return w;};
+})();
+
+function exoticDayKey(){const d=new Date();return d.getUTCFullYear()*10000+(d.getUTCMonth()+1)*100+d.getUTCDate();}
+function exoticStrikesToday(){const w=ensureWar(),k=exoticDayKey();if(w.exoticDay!==k){w.exoticDay=k;w.exoticStrikes=0;}return w.exoticStrikes|0;}
+function exoticStrikeCost(){const rank=Math.max(1,curFac()?rankOf(curFac()):1);const day=exoticStrikesToday();
+  return safe(Math.ceil(EXOTIC_STRIKE_BASE*shotCost()*(1+EXOTIC_STRIKE_RANK*Math.max(0,rank-1))*(1+EXOTIC_STRIKE_DAY*day)));}
+function exoticStrikeBlock(){if(!warUnlocked())return 'Reach Galaxy 2';if(!curFac())return 'Join a faction';if(inCombat())return 'Finish the battle first';if(MG.on)return 'Mission running';if(S.travel)return 'Wait until you arrive';
+  if(exoticStrikesToday()>=EXOTIC_STRIKE_CAP)return 'Daily exotic strike cap ('+EXOTIC_STRIKE_CAP+')';
+  const c=exoticStrikeCost();if(!(S.res.exotic>=c))return 'Need '+fmt(c)+' exotic';return '';}
+function spendExoticStrike(){const b=exoticStrikeBlock();if(b)return false;const c=exoticStrikeCost();S.res.exotic=safe(S.res.exotic-c);const w=ensureWar();exoticStrikesToday();w.exoticStrikes++;return true;}
+
+function startFrontlineExotic(){const b=exoticStrikeBlock();if(b){toast(b,'');return false;}
+  const before=S.res.exotic;if(!spendExoticStrike())return false;
+  const id=curFac();const w=ensureWar();const opp=FIDS.filter(f=>f!==id).sort((a,b)=>w.fronts[b]-w.fronts[a])[0];
+  MG.kind='frontline';MG.fid=id;MG.opp=opp;MG.t=0;MG.res=null;MG.parts.length=0;MG.floats.length=0;MG.shake=0;MG.ptr=null;MG.pause=false;MG.on=true;MG.exoticStrike=true;
+  const m=mgEl();m.classList.remove('hidden');$('#mgres').classList.add('hidden');$('#mgres').innerHTML='';mgSize();
+  MG.st=MGK.frontline.init();w.fights++;storyBeat('front1');abilUpdate();
+  setHTML($('#mgt'),`<svg viewBox="0 0 24 24" style="stroke:${FAC[id].col}">${FAC[id].svg}</svg><span>Extra Strike · Front-Line</span>`);
+  try{history.pushState({phmg:1},'');}catch(_){}
+  toast('Extra Strike (−'+fmt(before-S.res.exotic)+' exotic) · '+exoticStrikesToday()+'/'+EXOTIC_STRIKE_CAP+' today','gold');
+  save();return true;}
+
+/* ---- Stellaris-style borders (replaces v12 drawFactionBorders; call-site looks up at runtime) ---- */
+function _hexRgb(h){const s=String(h||'#888').replace('#','');const n=s.length===3?s.split('').map(c=>c+c).join(''):s;return {r:parseInt(n.slice(0,2),16)||0,g:parseInt(n.slice(2,4),16)||0,b:parseInt(n.slice(4,6),16)||0};}
+function _darkenHex(h,k){const c=_hexRgb(h);return 'rgb('+Math.round(c.r*k)+','+Math.round(c.g*k)+','+Math.round(c.b*k)+')';}
+function _convexHull(pts){if(pts.length<2)return pts.slice();const p=pts.slice().sort((a,b)=>a.x===b.x?a.y-b.y:a.x-b.x);const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const low=[];for(const q of p){while(low.length>=2&&cross(low[low.length-2],low[low.length-1],q)<=0)low.pop();low.push(q);}
+  const up=[];for(let i=p.length-1;i>=0;i--){const q=p[i];while(up.length>=2&&cross(up[up.length-2],up[up.length-1],q)<=0)up.pop();up.push(q);}
+  up.pop();low.pop();return low.concat(up);}
+function _clusterPlanets(idxs,thresh){const unused=new Set(idxs);const groups=[];
+  while(unused.size){const start=unused.values().next().value;unused.delete(start);const g=[start],q=[start];
+    while(q.length){const i=q.pop();const a=mapPos(P[i]);for(const j of unused){const b=mapPos(P[j]);if(Math.hypot(a.x-b.x,a.y-b.y)<thresh){unused.delete(j);g.push(j);q.push(j);}}}
+    groups.push(g);}return groups;}
+function _strokeTerritory(pts,col,pad){if(!pts.length)return;const rgb=_hexRgb(col);
+  if(pts.length===1){const p=pts[0],r=pad;ctx.save();
+    ctx.shadowColor='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.85)';ctx.shadowBlur=14;ctx.strokeStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.55)';ctx.lineWidth=6;ctx.beginPath();ctx.arc(p.x,p.y,r,0,TAU);ctx.stroke();
+    ctx.shadowBlur=0;ctx.strokeStyle=_darkenHex(col,.55);ctx.lineWidth=3.2;ctx.globalAlpha=.95;ctx.beginPath();ctx.arc(p.x,p.y,r,0,TAU);ctx.stroke();
+    ctx.strokeStyle='rgba('+Math.min(255,rgb.r+40)+','+Math.min(255,rgb.g+40)+','+Math.min(255,rgb.b+40)+',.75)';ctx.lineWidth=1.4;ctx.beginPath();ctx.arc(p.x,p.y,r,0,TAU);ctx.stroke();
+    ctx.restore();return;}
+  const hull=_convexHull(pts);if(hull.length<2)return;
+  let cx=0,cy=0;for(const p of hull){cx+=p.x;cy+=p.y;}cx/=hull.length;cy/=hull.length;
+  const grow=hull.map(p=>{const d=Math.hypot(p.x-cx,p.y-cy)||1;return {x:cx+(p.x-cx)/d*(d+pad),y:cy+(p.y-cy)/d*(d+pad)};});
+  const path=()=>{ctx.beginPath();ctx.moveTo(grow[0].x,grow[0].y);for(let i=1;i<grow.length;i++)ctx.lineTo(grow[i].x,grow[i].y);ctx.closePath();};
+  ctx.save();
+  ctx.shadowColor='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.9)';ctx.shadowBlur=16;ctx.strokeStyle='rgba('+rgb.r+','+rgb.g+','+rgb.b+',.5)';ctx.lineWidth=7;ctx.lineJoin='round';path();ctx.stroke();
+  ctx.shadowBlur=0;ctx.strokeStyle=_darkenHex(col,.5);ctx.lineWidth=3.4;ctx.globalAlpha=.98;path();ctx.stroke();
+  ctx.strokeStyle='rgba('+Math.min(255,rgb.r+50)+','+Math.min(255,rgb.g+50)+','+Math.min(255,rgb.b+50)+',.7)';ctx.lineWidth=1.5;path();ctx.stroke();
+  ctx.restore();}
+
+function drawFactionBorders(t){if(!warUnlocked()||!P||P.length<2)return;warTick();
+  const m=Math.min(W,H),pad=m*.055,link=m*.38;
+  /* Pass 1 — soft color wash (Stellaris haze); stars/planets stay visible */
+  for(const p of P){if(p.i===0)continue;const own=planetOwner(p.i);if(!own)continue;const q=mapPos(p),r=mapR(p)+m*.09;const col=FAC[own].col,rgb=_hexRgb(col);
+    const g=ctx.createRadialGradient(q.x,q.y,r*.15,q.x,q.y,r);
+    g.addColorStop(0,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',.18)');g.addColorStop(.55,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',.10)');g.addColorStop(1,'rgba('+rgb.r+','+rgb.g+','+rgb.b+',0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,TAU);ctx.fill();}
+  /* Pass 2 — thick glowing outlines per connected territory */
+  for(const id of FIDS){const idxs=[];for(let i=1;i<P.length;i++)if(planetOwner(i)===id)idxs.push(i);if(!idxs.length)continue;
+    const groups=_clusterPlanets(idxs,link);
+    for(const g of groups){const pts=g.map(i=>{const q=mapPos(P[i]);return {x:q.x,y:q.y};});_strokeTerritory(pts,FAC[id].col,pad+8);}}
+  /* banner pips */
+  for(const p of P){if(p.i===0)continue;const own=planetOwner(p.i);if(!own)continue;const q=mapPos(p),r=mapR(p)+18,col=FAC[own].col;
+    ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(q.x+r*.55,q.y-r*.9);ctx.lineTo(q.x+r*.55+7,q.y-r*.9+3);ctx.lineTo(q.x+r*.55,q.y-r*.9+6);ctx.closePath();ctx.fill();
+    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(q.x+r*.55,q.y-r*.9);ctx.lineTo(q.x+r*.55,q.y-r*.9+11);ctx.stroke();}
+  /* hub contested */
+  const h=mapPos(P[0]),hr=mapR(P[0])+8;ctx.strokeStyle='rgba(255,211,107,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.arc(h.x,h.y,hr,0,TAU);ctx.stroke();ctx.setLineDash([]);
+}
+
+function territoryOwners(){const o={};for(let i=0;i<P.length;i++)o[i]=planetOwner(i);return o;}
+
+/* ---- War Board UI: rebuild so live() cannot wipe buttons; add Extra Strike ---- */
+function warBoardCard(pn){if(!warUnlocked())return;ensureWar();
+  const c=el('div','card hl');
+  const body=el('div');live(body,e=>setHTML(e,warFrontHTML()));c.appendChild(body);
+  const bs=el('div','btns');
+  bs.appendChild(btn('alt',()=>{const b=warBlock();return b||'Join Front-Line Battle';},null,()=>startFrontline(),()=>!warBlock()));
+  const lab=()=>{const b=exoticStrikeBlock();if(b)return b;const n=exoticStrikesToday();return 'Extra Strike (−'+fmt(exoticStrikeCost())+' exotic · '+n+'/'+EXOTIC_STRIKE_CAP+')';};
+  bs.appendChild(btn('ghost',lab,()=>({exotic:exoticStrikeCost()}),()=>startFrontlineExotic(),()=>!exoticStrikeBlock()));
+  c.appendChild(bs);
+  const lg=el('div','muted');lg.style.marginTop='6px';
+  live(lg,e=>{const w=ensureWar();setHTML(e,w.log.length?w.log.slice(-3).reverse().map(l=>'· '+l.msg).join('<br>'):'');});
+  c.appendChild(lg);pn.appendChild(c);}
+(function(){
+  const _wf=warFrontHTML;warFrontHTML=function(){const base=_wf();const n=exoticStrikesToday();const c=exoticStrikeCost();
+    return base+`<div class="muted" style="margin-top:4px">Extra Strike: <span class="c"><i style="background:${RINFO.exotic.c}"></i>${fmt(c)}</span> exotic · ${n}/${EXOTIC_STRIKE_CAP} today (scales with rank & prior strikes)</div>`;};
+})();
+
+window.__PH13={exoticStrikeCost,exoticStrikeBlock,exoticStrikesToday,exoticDayKey,spendExoticStrike,startFrontlineExotic,drawFactionBorders,territoryOwners,EXOTIC_STRIKE_BASE,EXOTIC_STRIKE_RANK,EXOTIC_STRIKE_DAY,EXOTIC_STRIKE_CAP};
+if(window.__PH12)Object.assign(window.__PH12,{startFrontlineExotic,exoticStrikeCost,exoticStrikeBlock,exoticStrikesToday,territoryOwners});
+
+console.log('v13 exotic-strike + stellaris borders loaded');
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -2749,7 +2850,7 @@ function makeIcon(size,pad){pad=pad||0;const c=document.createElement('canvas');
   x.fillStyle='#86f59a';x.beginPath();x.arc(50*k,15*k,4*k,0,TAU);x.fill();return c.toDataURL('image/png');}
 const WEB=/^https?:$/.test(location.protocol);
 try{
-  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href='apple-touch-icon.png';
+  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href= 'apple-touch-icon.png';
     if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed',e)));}
   else{$('#appleicon').href=makeIcon(180);
     const man={name:'Planet Harvester',short_name:'Harvester',start_url:'./',display:'standalone',orientation:'portrait',background_color:'#05060f',theme_color:'#05060f',icons:[{src:makeIcon(192),sizes:'192x192',type:'image/png'},{src:makeIcon(512),sizes:'512x512',type:'image/png'}]};
@@ -2773,7 +2874,8 @@ setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').cla
   if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}
   if(!fresh&&(S.lastVer||5)<10&&S.galaxy>=1)setTimeout(()=>toast('Updated! New Factions tab: join the Galactic Patrol, Pirate Syndicate, Trader Guild, Explorer League or Mega Corp for a bonus, an ability and a minigame mission. First join is free.','gold'),6500);
   if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);
-  if(!fresh&&(S.lastVer||5)<12&&S.galaxy>=1)setTimeout(()=>toast('Updated! Faction Wars are live — join front-line battles, watch borders shift, fill the Relic Museum, and dock the Battle Moon at your colony.','gold'),8500);S.lastVer=12;
+  if(!fresh&&(S.lastVer||5)<12&&S.galaxy>=1)setTimeout(()=>toast('Updated! Faction Wars are live — join front-line battles, watch borders shift, fill the Relic Museum, and dock the Battle Moon at your colony.','gold'),8500);
+  if(!fresh&&(S.lastVer||5)<13&&S.galaxy>=1)setTimeout(()=>toast('Updated! Spend Exotic for Extra Strikes when war energy is empty, and faction borders now wash the map Stellaris-style.','gold'),9500);S.lastVer=13;
   if(S.galaxy>=1){try{ensureWar();}catch(_){}}
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 mgInit();$('#abil').addEventListener('click',()=>{useAbility();});const mf=$('#moonfire');if(mf)mf.addEventListener('click',()=>{fireMoonLaser();});if(curFac()==='pirate')ensureTargets();
@@ -2783,6 +2885,7 @@ window.PH={F:{newFaction,sanitizeFaction,joinFaction,canJoin,switchCost,switchLe
   moonOwned,moonUnlocked,moonBuyCost,buyMoon,buyMoonUp,startMoonMove,moonLv,moonMaxHp,moonDps,moonLaserCost,moonLaserReady,fireMoonLaser,moonLaserDmg,moonLaserChargeTime,moonAtPlanet,moonDefending,moonMoveTime,moonPanelCard,
   startArmadaWarning,startArmada,armadaSize,armadaMothers,armadaActive,spawnSalvageHaul,tapHaul,sanitizeMoon,newMoon,combatSum};
 try{const H=window.__PH12||{};Object.assign(PH,H);if(PH.F)Object.assign(PH.F,{hurtRep:H.hurtRep,isHostile:H.isHostile,startFrontline:H.startFrontline,warEnergy:H.warEnergy,spendWarEnergy:H.spendWarEnergy,planetOwner:H.planetOwner,museumPerk:H.museumPerk,museumSetDone:H.museumSetDone,grantMuseumPiece:H.grantMuseumPiece,storyBeat:H.storyBeat,dockMoon:H.dockMoon,undockMoon:H.undockMoon,moonDocked:H.moonDocked,canDockMoon:H.canDockMoon,ensureWar:H.ensureWar,warBlock:H.warBlock,applyWarWin:H.applyWarWin,applyWarLoss:H.applyWarLoss,hurtRep:H.hurtRep});}catch(e){console.warn('ph12 export',e);}
+try{const H13=window.__PH13||{};Object.assign(PH,H13);if(PH.F)Object.assign(PH.F,{startFrontlineExotic:H13.startFrontlineExotic,exoticStrikeCost:H13.exoticStrikeCost,exoticStrikeBlock:H13.exoticStrikeBlock,exoticStrikesToday:H13.exoticStrikesToday,territoryOwners:H13.territoryOwners});}catch(e){console.warn('ph13 export',e);}
 })();
 </script>
 </body>
