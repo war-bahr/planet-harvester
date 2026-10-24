@@ -168,7 +168,6 @@ button *{pointer-events:none}
 #mgres .emb{margin:0 auto}
 
 /* v15 goals / prestige / results / warp / coach */
-#goalchip{min-width:52px;min-height:44px;background:#13284a;border:1px solid #3a6aa8;border-radius:10px;padding:2px 8px;font-size:10px;color:#c4e0ff;display:flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.15;flex:0 0 auto;font-weight:800}
 .goalrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #26306a;min-height:34px;font-size:12px}
 .goalrow:last-child{border-bottom:0}
 #rescard{position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(2,3,10,.72)}
@@ -3201,8 +3200,7 @@ function installV15UI(){
     list.appendChild(box);pn.appendChild(list);coachMaybe();};
   const _ut=updTop;updTop=function(){_ut();try{
     const g=$('#galchip');if(g&&ngLevel()>0)setHTML(g,`<span>Galaxy</span><b>${S.galaxy+1}</b><span>NG+${ngLevel()} · ×${empire().toFixed(2)}</span>`);
-    let chip=$('#goalchip');if(!chip){chip=document.createElement('button');chip.id='goalchip';chip.type='button';chip.setAttribute('aria-label','Goals');const top=$('#top');if(top)top.appendChild(chip);chip.onclick=()=>{R.tab='more';setFS(false);renderTabs();renderPanel();};}
-    const list=ensureGoals();chip.textContent='Goals '+list.filter(x=>(x.prog||0)>0).length+'/'+GOAL_SLOTS;
+    const chip=$('#goalchip');if(chip)chip.remove();
   }catch(_){}};
   const _fr=frame;frame=function(ts){if(R.ngWarp){const now=performance.now();const dt=Math.min(.25,Math.max(0,(now-(frame._lt||now))/1000));frame._lt=now;try{ngWarpFrame(dt);}catch(e){console.error(e);}requestAnimationFrame(frame);return;}_fr(ts);};
   /* refresh PH exports used by tests */
@@ -3460,7 +3458,7 @@ function makeIcon(size,pad){pad=pad||0;const c=document.createElement('canvas');
   x.fillStyle='#86f59a';x.beginPath();x.arc(50*k,15*k,4*k,0,TAU);x.fill();return c.toDataURL('image/png');}
 const WEB=/^https?:$/.test(location.protocol);
 try{
-  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href='apple-touch-icon.png';
+  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href='icons/apple-touch-icon.png';
     if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed',e)));}
   else{$('#appleicon').href=makeIcon(180);
     const man={name:'Planet Harvester',short_name:'Harvester',start_url:'./',display:'standalone',orientation:'portrait',background_color:'#05060f',theme_color:'#05060f',icons:[{src:makeIcon(192),sizes:'192x192',type:'image/png'},{src:makeIcon(512),sizes:'512x512',type:'image/png'}]};
