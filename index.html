@@ -2621,6 +2621,172 @@ window.__PH13={exoticStrikeCost,exoticStrikeBlock,exoticStrikesToday,exoticDayKe
 if(window.__PH12)Object.assign(window.__PH12,{startFrontlineExotic,exoticStrikeCost,exoticStrikeBlock,exoticStrikesToday,territoryOwners});
 
 console.log('v13 exotic-strike + stellaris borders loaded');
+/* ================= v14: Territory bonuses/penalties (outposts + Battle Moon) ================= */
+const TERR_FRIENDLY_PROD=1.20;  /* +20% outpost production in your faction territory */
+const TERR_OUTSIDE_PROD=0.80;   /* −20% outside / contested / unowned */
+const TERR_FRIENDLY_MOON=1.20;  /* +20% Battle Moon combat/defense/dock contribution */
+const TERR_OUTSIDE_MOON=0.80;   /* −20% outside */
+const TERR_OUTSIDE_RAID=1.50;   /* +50% raid frequency (offline rolls + live weighting) */
+const TERR_FRIENDLY_PCT=20,TERR_OUTSIDE_PCT=20,TERR_RAID_PCT=50;
+
+(function(){
+  const _ns=newState;newState=function(){const s=_ns();s.lastVer=14;return s;};
+})();
+
+/* ---- resolve: friendly | outside | null (no effect) ---- */
+function territoryActive(){return !!(typeof warUnlocked==='function'&&warUnlocked()&&typeof curFac==='function'&&curFac());}
+function territoryStatus(pi){
+  if(!territoryActive()||pi==null||!P||!P[pi])return null;
+  const own=typeof planetOwner==='function'?planetOwner(pi):null;
+  return own===curFac()?'friendly':'outside'; /* hub/unowned/other → outside */
+}
+function territoryProdMult(pi){const s=territoryStatus(pi);return s==='friendly'?TERR_FRIENDLY_PROD:s==='outside'?TERR_OUTSIDE_PROD:1;}
+function territoryRaidMult(pi){return territoryStatus(pi)==='outside'?TERR_OUTSIDE_RAID:1;}
+function territoryMoonPlanet(){
+  if(!moonOwned())return -1;
+  if(S.moon.travel)return -1;
+  return S.moon.at|0;
+}
+function territoryMoonStatus(){const pi=territoryMoonPlanet();return pi<0?null:territoryStatus(pi);}
+function territoryMoonMult(){const s=territoryMoonStatus();return s==='friendly'?TERR_FRIENDLY_MOON:s==='outside'?TERR_OUTSIDE_MOON:1;}
+
+function territoryBadgeHTML(status,kind){
+  if(status==='friendly')return `<span class="lv" style="background:#16805e">Friendly territory +${TERR_FRIENDLY_PCT}%</span>`;
+  if(status==='outside'){
+    if(kind==='moon')return `<span class="lv" style="background:#8a3a2a">Outside territory −${TERR_OUTSIDE_PCT}%</span>`;
+    return `<span class="lv" style="background:#8a3a2a">Outside territory −${TERR_OUTSIDE_PCT}% · raids +${TERR_RAID_PCT}%</span>`;
+  }
+  return '';
+}
+
+/* ---- production (online + offline accrual share outRate) ---- */
+(function(){
+  const _or=outRate;outRate=function(pi){return _or(pi)*territoryProdMult(pi);};
+})();
+
+/* ---- Battle Moon combat / defense / dock ---- */
+(function(){
+  const _md=moonDps;moonDps=function(){return _md()*territoryMoonMult();};
+  const _mld=moonLaserDmg;moonLaserDmg=function(){return _mld()*territoryMoonMult();};
+  const _mdb=moonDockBoost;moonDockBoost=function(){
+    const base=_mdb(); /* 1 or 1.08 */
+    if(base<=1)return base;
+    const m=territoryMoonMult();
+    /* scale only the +8% bonus: 1 + 0.08*m */
+    return 1+(base-1)*m;
+  };
+  /* v11 baked moonMaxHp*.01 into outDefense using unscaled HP — scale that term with moon mult */
+  const _od=outDefense;outDefense=function(pi){
+    let d=_od(pi);
+    if(moonOwned()&&!S.moon.travel&&S.moon.at===+pi&&!(typeof moonDocked==='function'&&moonDocked())){
+      const m=territoryMoonMult();
+      if(m!==1)d+=moonMaxHp()*.01*(m-1);
+    }
+    return d;
+  };
+})();
+
+/* ---- raids: offline chance × mult; live pick weights + shorter delay ---- */
+function pickORaidTarget(){
+  const keys=Object.keys(S.outposts).map(Number);if(!keys.length)return null;
+  if(!territoryActive())return keys[Math.floor(Math.random()*keys.length)];
+  const w=keys.map(pi=>territoryStatus(pi)==='outside'?2:1);
+  let t=0;for(const x of w)t+=x;let r=Math.random()*t;
+  for(let i=0;i<keys.length;i++){r-=w[i];if(r<=0)return keys[i];}
+  return keys[keys.length-1];
+}
+function nextORaidDelay(pi){
+  let base=420+Math.random()*300;
+  if(pi!=null&&territoryRaidMult(pi)>1)base/=TERR_OUTSIDE_RAID;
+  return base;
+}
+(function(){
+  const _off=offlineRaids;offlineRaids=function(secs){
+    /* replicate with per-outpost raid mult; keep caps via resolveRaid */
+    const rep={};if(!(secs>=600))return rep;const hours=Math.min(48,secs/3600),full=Math.floor(hours);
+    for(const pi in S.outposts){const o=S.outposts[pi],base=stored(o),budget={left:base*ABSENCE_MAX_FRAC};
+      const rph=RAID_PER_HOUR*pirateOffline()*territoryRaidMult(+pi);let n=0;for(let h=0;h<full;h++)if(Math.random()<rph)n++;if(Math.random()<(hours-full)*rph)n++;
+      if(!n)continue;const r={raids:n,repelled:0,salvage:0,lost:{},lostTotal:0,base,maxFrac:0};
+      for(let i=0;i<n;i++){const x=resolveRaid(+pi,budget);if(x.won){r.repelled++;r.salvage+=x.salvage;}else{r.maxFrac=Math.max(r.maxFrac,x.frac);for(const k in x.lost){r.lost[k]=(r.lost[k]||0)+x.lost[k];r.lostTotal+=x.lost[k];}}}
+      rep[pi]=r;}
+    return rep;
+  };
+  const _sp=spawnORaid;spawnORaid=function(pi,secs){
+    if(pi==null)pi=pickORaidTarget();
+    return _sp(pi,secs);
+  };
+  const _ar=autoResolveORaid;autoResolveORaid=function(){
+    const r=C.oraid;_ar();
+    if(r)C.nextORaid=nextORaidDelay(r.pi);
+  };
+  const _uo=updateOutpostRaid;updateOutpostRaid=function(dt){
+    if(C.oraid){const r=C.oraid;if(!S.outposts[r.pi]){C.oraid=null;updateBadges();return;}r.t-=dt;
+      if(r.t<=0){if(S.at===r.pi&&!S.travel&&!C.father)launchORaid();else autoResolveORaid();}}
+    else if(outCount()>0&&!inCombat()&&S.stats.play>360){C.nextORaid-=dt;if(C.nextORaid<=0){
+      const pi=pickORaidTarget();C.nextORaid=nextORaidDelay(pi);spawnORaid(pi);}}
+  };
+})();
+
+/* ---- UI badges ---- */
+(function(){
+  const _mor=moonOutpostRow;moonOutpostRow=function(pi,c){
+    const badge=el('div');badge.className='terr-badge';
+    live(badge,e=>{const st=territoryStatus(pi);const h=territoryBadgeHTML(st,'outpost');setHTML(e,h?`<div style="margin-top:4px;font-size:12px">${h}</div>`:'');});
+    c.appendChild(badge);
+    _mor(pi,c);
+  };
+  const _mpc=moonPanelCard;moonPanelCard=function(pn){
+    _mpc(pn);
+    if(!moonOwned())return;
+    const c=el('div','card');
+    live(c,e=>{
+      const st=territoryMoonStatus();
+      const trav=S.moon&&S.moon.travel;
+      let body='';
+      if(trav)body=`<div class="sub">Territory effects apply when parked.</div>`;
+      else if(st==='friendly')body=`<div class="title" style="font-size:13px">${territoryBadgeHTML('friendly','moon')}</div><div class="sub">Combat DPS, Moon Laser, defense contribution${moonDocked()?' & colony dock boost':''} boosted while in your territory.</div>`;
+      else if(st==='outside')body=`<div class="title" style="font-size:13px">${territoryBadgeHTML('outside','moon')}</div><div class="sub">Reduced combat effectiveness while outside your faction territory.</div>`;
+      else body=`<div class="sub">Join a faction (Galaxy 2+) for territory combat bonuses on the Battle Moon.</div>`;
+      setHTML(e,body);
+    });
+    /* insert after main moon card (#mooncard's first card, or first hl card) */
+    const wrap=pn.querySelector('#mooncard');
+    if(wrap&&wrap.nextSibling)pn.insertBefore(c,wrap.nextSibling);
+    else{
+      const first=pn.querySelector('.card.hl')||pn.querySelector('.card');
+      if(first&&first.nextSibling)pn.insertBefore(c,first.nextSibling);else pn.appendChild(c);
+    }
+  };
+})();
+
+/* ---- Map cue: ring on owned outposts by territory ---- */
+(function(){
+  const _dfb=drawFactionBorders;drawFactionBorders=function(t){
+    _dfb(t);
+    if(!territoryActive()||!P)return;
+    for(const pi in S.outposts){const i=+pi,p=P[i];if(!p)continue;const st=territoryStatus(i);if(!st)continue;
+      const q=mapPos(p),r=mapR(p)+6;const col=st==='friendly'?'rgba(40,180,120,.85)':'rgba(220,90,70,.75)';
+      ctx.save();ctx.strokeStyle=col;ctx.lineWidth=2;ctx.globalAlpha=.9;ctx.beginPath();ctx.arc(q.x,q.y,r,0,TAU);ctx.stroke();
+      ctx.globalAlpha=.35;ctx.lineWidth=5;ctx.beginPath();ctx.arc(q.x,q.y,r,0,TAU);ctx.stroke();ctx.restore();}
+  };
+  const _pm=pMap;pMap=function(pn){_pm(pn);
+    if(!territoryActive()||R.sel==null)return;
+    const st=territoryStatus(R.sel);if(!st||!S.outposts[R.sel])return;
+    const tag=el('div','muted');tag.style.marginTop='4px';
+    tag.innerHTML=territoryBadgeHTML(st,'outpost');
+    const card=pn.querySelector('.card.hl');if(card)card.appendChild(tag);};
+})();
+
+window.__PH14={
+  territoryActive,territoryStatus,territoryProdMult,territoryRaidMult,territoryMoonMult,territoryMoonStatus,territoryMoonPlanet,
+  territoryBadgeHTML,pickORaidTarget,nextORaidDelay,
+  TERR_FRIENDLY_PROD,TERR_OUTSIDE_PROD,TERR_FRIENDLY_MOON,TERR_OUTSIDE_MOON,TERR_OUTSIDE_RAID,
+  TERR_FRIENDLY_PCT,TERR_OUTSIDE_PCT,TERR_RAID_PCT
+};
+if(window.__PH13)Object.assign(window.__PH13,window.__PH14);
+if(window.__PH12)Object.assign(window.__PH12,{territoryStatus:territoryStatus,territoryProdMult:territoryProdMult,territoryRaidMult:territoryRaidMult,territoryMoonMult:territoryMoonMult});
+
+console.log('v14 territory bonuses loaded');
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -2850,7 +3016,7 @@ function makeIcon(size,pad){pad=pad||0;const c=document.createElement('canvas');
   x.fillStyle='#86f59a';x.beginPath();x.arc(50*k,15*k,4*k,0,TAU);x.fill();return c.toDataURL('image/png');}
 const WEB=/^https?:$/.test(location.protocol);
 try{
-  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href= 'apple-touch-icon.png';
+  if(WEB){$('#manifest').href='manifest.webmanifest';$('#appleicon').href='apple-touch-icon.png';
     if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW registration failed',e)));}
   else{$('#appleicon').href=makeIcon(180);
     const man={name:'Planet Harvester',short_name:'Harvester',start_url:'./',display:'standalone',orientation:'portrait',background_color:'#05060f',theme_color:'#05060f',icons:[{src:makeIcon(192),sizes:'192x192',type:'image/png'},{src:makeIcon(512),sizes:'512x512',type:'image/png'}]};
@@ -2875,7 +3041,8 @@ setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').cla
   if(!fresh&&(S.lastVer||5)<10&&S.galaxy>=1)setTimeout(()=>toast('Updated! New Factions tab: join the Galactic Patrol, Pirate Syndicate, Trader Guild, Explorer League or Mega Corp for a bonus, an ability and a minigame mission. First join is free.','gold'),6500);
   if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);
   if(!fresh&&(S.lastVer||5)<12&&S.galaxy>=1)setTimeout(()=>toast('Updated! Faction Wars are live — join front-line battles, watch borders shift, fill the Relic Museum, and dock the Battle Moon at your colony.','gold'),8500);
-  if(!fresh&&(S.lastVer||5)<13&&S.galaxy>=1)setTimeout(()=>toast('Updated! Spend Exotic for Extra Strikes when war energy is empty, and faction borders now wash the map Stellaris-style.','gold'),9500);S.lastVer=13;
+  if(!fresh&&(S.lastVer||5)<13&&S.galaxy>=1)setTimeout(()=>toast('Updated! Spend Exotic for Extra Strikes when war energy is empty, and faction borders now wash the map Stellaris-style.','gold'),9500);
+  if(!fresh&&(S.lastVer||5)<14&&S.galaxy>=1)setTimeout(()=>toast('Updated! Outposts and the Battle Moon are stronger in your faction territory — and weaker (with more raids) outside it.','gold'),10500);S.lastVer=14;
   if(S.galaxy>=1){try{ensureWar();}catch(_){}}
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 mgInit();$('#abil').addEventListener('click',()=>{useAbility();});const mf=$('#moonfire');if(mf)mf.addEventListener('click',()=>{fireMoonLaser();});if(curFac()==='pirate')ensureTargets();
@@ -2886,6 +3053,7 @@ window.PH={F:{newFaction,sanitizeFaction,joinFaction,canJoin,switchCost,switchLe
   startArmadaWarning,startArmada,armadaSize,armadaMothers,armadaActive,spawnSalvageHaul,tapHaul,sanitizeMoon,newMoon,combatSum};
 try{const H=window.__PH12||{};Object.assign(PH,H);if(PH.F)Object.assign(PH.F,{hurtRep:H.hurtRep,isHostile:H.isHostile,startFrontline:H.startFrontline,warEnergy:H.warEnergy,spendWarEnergy:H.spendWarEnergy,planetOwner:H.planetOwner,museumPerk:H.museumPerk,museumSetDone:H.museumSetDone,grantMuseumPiece:H.grantMuseumPiece,storyBeat:H.storyBeat,dockMoon:H.dockMoon,undockMoon:H.undockMoon,moonDocked:H.moonDocked,canDockMoon:H.canDockMoon,ensureWar:H.ensureWar,warBlock:H.warBlock,applyWarWin:H.applyWarWin,applyWarLoss:H.applyWarLoss,hurtRep:H.hurtRep});}catch(e){console.warn('ph12 export',e);}
 try{const H13=window.__PH13||{};Object.assign(PH,H13);if(PH.F)Object.assign(PH.F,{startFrontlineExotic:H13.startFrontlineExotic,exoticStrikeCost:H13.exoticStrikeCost,exoticStrikeBlock:H13.exoticStrikeBlock,exoticStrikesToday:H13.exoticStrikesToday,territoryOwners:H13.territoryOwners});}catch(e){console.warn('ph13 export',e);}
+try{const H14=window.__PH14||{};Object.assign(PH,H14);}catch(e){console.warn('ph14 export',e);}
 })();
 </script>
 </body>
