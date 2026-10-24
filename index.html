@@ -20,14 +20,15 @@ html,body{margin:0;height:100%;overscroll-behavior:none;touch-action:manipulatio
 button{font:inherit;color:inherit;touch-action:manipulation;cursor:pointer}
 button *{pointer-events:none}
 #app{position:fixed;inset:0;display:flex;flex-direction:column;padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left)}
-#top{display:flex;gap:6px;padding:calc(6px + env(safe-area-inset-top)) 8px 6px;background:linear-gradient(#0d1230,#0a0e26);border-bottom:1px solid #1d2552;align-items:stretch;z-index:2}
-#resbar{display:flex;gap:5px;flex:1;min-width:0}
-.res{display:flex;flex-direction:column;justify-content:center;background:#0e1534;border:1px solid #1f2a5c;border-radius:10px;padding:3px 8px;min-width:0;flex:1 1 0;overflow:hidden}
-.res .a{display:flex;align-items:center;gap:5px;font-weight:700;font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
-.res .r{color:#8d97cc;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 6px currentColor}
-#galchip{min-width:52px;min-height:44px;background:#1a1347;border:1px solid #4b3aa8;border-radius:10px;padding:2px 9px;font-size:11px;color:#cfc4ff;display:flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.2;flex:0 0 auto}
-#galchip b{font-size:14px;color:#fff}
+#top{display:flex;gap:4px;padding:calc(6px + env(safe-area-inset-top)) 6px 6px;background:linear-gradient(#0d1230,#0a0e26);border-bottom:1px solid #1d2552;align-items:stretch;z-index:2}
+#resbar{display:flex;gap:3px;flex:1 1 auto;min-width:0}
+.res{display:flex;flex-direction:column;justify-content:center;background:#0e1534;border:1px solid #1f2a5c;border-radius:10px;padding:3px 4px;min-width:0;min-height:40px;flex:1 1 0;overflow:hidden}
+.res .a{display:flex;align-items:center;gap:3px;font-weight:700;font-size:13px;line-height:1.15;white-space:nowrap;min-width:0}
+.res .a .v{min-width:0;overflow:visible}
+.res .r{color:#8d97cc;font-size:10px;line-height:1.15;white-space:nowrap;letter-spacing:-.01em}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 6px currentColor}
+#galchip{min-width:44px;min-height:44px;background:#1a1347;border:1px solid #4b3aa8;border-radius:10px;padding:2px 5px;font-size:10px;color:#cfc4ff;display:flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.15;flex:0 0 auto;max-width:38%;white-space:nowrap}
+#galchip b{font-size:13px;color:#fff;line-height:1.15}
 #main{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
 #view{position:relative;flex:1 1 44%;min-height:180px;overflow:hidden}
 #cv{position:absolute;left:0;top:0;width:100%;height:100%;touch-action:none;display:block;cursor:pointer}
@@ -3396,7 +3397,7 @@ function buildTop(){const rb=$('#resbar');rb.innerHTML='';for(const k of RES){co
   $('#galchip').onclick=()=>{R.tab='galaxy';setFS(false);renderTabs();renderPanel();};}
 function updTop(){const mining=!S.travel&&!document.hidden,rate=mining?stationRate():0,w=P[S.at].w;
   for(const k of RES){const e=resEls[k];const show=k!=='exotic'||S.galaxy>=1||S.res.exotic>0;e.d.style.display=show?'':'none';
-    const v=fmt(S.res[k]);if(e.v._t!==v){e.v._t=v;e.v.textContent=v;}const rt=mining&&w[k]>0?'+'+fmt(rate*w[k])+'/s':RINFO[k].n;if(e.r._t!==rt){e.r._t=rt;e.r.textContent=rt;}}
+    const v=fmt(S.res[k]);if(e.v._t!==v){e.v._t=v;e.v.textContent=v;}const rt=mining&&w[k]>0?'+'+fmt(rate*w[k]):RINFO[k].n;if(e.r._t!==rt){e.r._t=rt;e.r.textContent=rt;}}
   setHTML($('#galchip'),`<span>Galaxy</span><b>${S.galaxy+1}</b><span>×${empire().toFixed(2)}</span>`);
   const tb=$('#travelbar');if(S.travel){const k=clamp((Date.now()-S.travel.start)/S.travel.dur,0,1);tb.style.display='block';setHTML(tb,`<div class="row" style="font-size:13px"><b class="grow">Traveling to ${P[S.travel.to].name}</b><span>${fmtTime(Math.ceil((S.travel.start+S.travel.dur-Date.now())/1000))}</span></div><div class="bar"><div style="width:${(k*100).toFixed(1)}%"></div></div>`);}else tb.style.display='none';
   const bn=$('#banner'),now=performance.now();
