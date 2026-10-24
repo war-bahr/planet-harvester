@@ -121,6 +121,15 @@ button *{pointer-events:none}
 .gain .costs{justify-content:flex-end}
 .tag{font-size:10px;font-weight:800;background:#ff9f2e;color:#2a1600;padding:1px 6px;border-radius:6px;margin-left:4px}
 .tip{background:#121b45;border-left:3px solid #5f7bff;padding:7px 9px;border-radius:6px;font-size:12px;color:#c4cbef;margin-bottom:8px}
+/* v11 armada / moon */
+#banner.armada{border-color:#ff4d5e;box-shadow:0 0 20px #ff4d5e88;background:rgba(60,10,18,.9);animation:apulse 1s ease-in-out infinite alternate}
+@keyframes apulse{to{box-shadow:0 0 28px #ff4d5e}}
+#moonfire{position:absolute;right:10px;bottom:76px;width:58px;height:58px;border-radius:50%;border:0;padding:0;background:radial-gradient(circle at 35% 30%,#1a3a62,#0a0f28);box-shadow:0 2px 10px #000a,0 0 0 1px #2c5878;z-index:3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px;--fc:#9fe6ff}
+#moonfire.hidden{display:none}
+#moonfire .ic{display:flex;opacity:.55}#moonfire .ic svg{width:22px;height:22px;fill:none;stroke:var(--fc);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#moonfire .lb{font-size:10px;font-weight:800;color:#c4cbef;line-height:1;font-variant-numeric:tabular-nums}
+#moonfire.ready{box-shadow:0 0 0 2px var(--fc),0 0 18px var(--fc)}#moonfire.ready .ic{opacity:1}#moonfire.ready .lb{color:#fff}
+
 /* v10 factions */
 #abil{position:absolute;right:10px;bottom:10px;width:58px;height:58px;border-radius:50%;border:0;padding:0;background:radial-gradient(circle at 35% 30%,#1f2a62,#0a0f28);box-shadow:0 2px 10px #000a,0 0 0 1px #2c3878;z-index:3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px;--fc:#9fb0ff}
 #abil.hidden{display:none}
@@ -163,7 +172,7 @@ button *{pointer-events:none}
 <div id="app">
   <header id="top"><div id="resbar"></div><button id="galchip" aria-label="Galaxy"></button></header>
   <div id="main">
-    <div id="view"><canvas id="cv"></canvas><div id="banner"></div><div id="toasts"></div><div id="travelbar"></div><button id="abil" class="hidden" aria-label="Faction ability"><svg viewBox="0 0 60 60"><circle class="tr" cx="30" cy="30" r="26"/><circle class="pr" cx="30" cy="30" r="26"/></svg><span class="ic"></span><span class="lb"></span></button></div>
+    <div id="view"><canvas id="cv"></canvas><div id="banner"></div><div id="toasts"></div><div id="travelbar"></div><button id="moonfire" class="hidden" aria-label="Moon Laser"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M4 12h3M17 12h3"/></svg></span><span class="lb"></span></button><button id="abil" class="hidden" aria-label="Faction ability"><svg viewBox="0 0 60 60"><circle class="tr" cx="30" cy="30" r="26"/><circle class="pr" cx="30" cy="30" r="26"/></svg><span class="ic"></span><span class="lb"></span></button></div>
     <div id="side"><div id="panel"></div><nav id="tabs"></nav></div>
   </div>
 </div>
@@ -236,10 +245,11 @@ function genGalaxy(seed,g){
 let S,P,GAL;
 function newState(){
   const now=Date.now();
-  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,fullscreen:false,tips:{},lastVer:7,colony:newColony(),raids:0,father:{},trophies:{},faction:newFaction(),
+  return {v:VERSION,seed:(Math.random()*4294967296)>>>0,galaxy:0,res:{ore:0,crystal:0,gas:0,exotic:0,salvage:0},combat:{cannon:0,fighters:0,weapons:0,hull:0,shields:0,armaments:0,critChance:0,critPower:0},sound:true,haptics:true,autobuy:false,fullscreen:false,tips:{},lastVer:7,colony:newColony(),raids:0,father:{},trophies:{},faction:newFaction(),moon:null,
     mods:{drill:0,drones:0,laser:0,engine:0,super:0},laserCharge:0,at:0,travel:null,outposts:{},clock:now,saved:now,created:now,buyMode:1,
     stats:{taps:0,trips:0,rocks:0,built:0,earned:{ore:0,crystal:0,gas:0,exotic:0},play:0},ach:{},seenAch:0,intro:false};
 }
+function sanitizeMoon(o){if(!o||typeof o!=='object'||!o.owned)return null;return o;}
 function sanitize(o){
   const d=newState();
   if(!o||typeof o!=='object'||!o.res||!o.mods)throw new Error('bad save');
@@ -256,6 +266,7 @@ function sanitize(o){
   if(![1,10,'max'].includes(s.buyMode))s.buyMode=1;
   if(s.travel&&!(Number.isFinite(s.travel.to)&&Number.isFinite(s.travel.start)))s.travel=null;
   s.faction=sanitizeFaction(o.faction); // v10: old saves load with no faction
+  s.moon=sanitizeMoon(o.moon); // v11: Battle Moon
   return s;
 }
 function load(){try{const raw=localStorage.getItem(SAVE_KEY);if(!raw)return null;return sanitize(JSON.parse(raw));}catch(e){console.warn('save load failed',e);return null;}}
@@ -411,6 +422,9 @@ const ACH=[
   ['bil','Planet Eater','Earn 1B ore total',()=>S.stats.earned.ore>=1e9],
   ['raid','Pirate Hunter','Repel 10 pirate raids',()=>(S.stats.raidsWon||0)>=10],
   ['mother','Mothership Down','Destroy a pirate Mothership',()=>(S.stats.mothers||0)>=1],
+  ['armada','Armada Breaker','Repel a Massive Fleet Raid',()=>(S.stats.armadasWon||0)>=1],
+  ['bmoon','Battle Moon','Construct the Battle Moon',()=>!!(S.moon&&S.moon.owned)],
+  ['moonlaser','Moonstrike','Fire the Moon Laser',()=>(S.stats.moonShots||0)>=1],
   ['father','Fatherslayer','Defeat a Father Ship',()=>(S.stats.fathers||0)>=1],
   ['crit1','Lucky Strike','Land 100 critical hits',()=>(S.stats.crits||0)>=100],
   ['crit2','Critical Mass','Land 2,000 critical hits',()=>(S.stats.crits||0)>=2000]
@@ -664,8 +678,8 @@ const ETYPES={
   hunter:{hp:120,spd:.14,sal:12,r:.045,name:'Bounty Hunter'} // v10: Patrol bounty hunters (attack Pirate-faction players)
 };
 /* combat runtime state */
-const C={log:[],dpos:[],ddis:[],raid:null,enemies:[],shots:[],hp:300,shield:0,fdis:[],fpos:[],nextRaid:300,father:null,laserTarget:null,grace:60,shake:0,darken:0};
-function inCombat(){return !!(C.raid||C.father);}
+const C={log:[],dpos:[],ddis:[],raid:null,enemies:[],shots:[],hp:300,shield:0,fdis:[],fpos:[],nextRaid:300,father:null,laserTarget:null,grace:60,shake:0,darken:0,armadaWarn:0,haul:null};
+function inCombat(){return !!(C.raid||C.father||C.armadaWarn>0);}
 /* mining drones join any battle at the current planet (mining output halved meanwhile) */
 function dronesEngaged(){return !!(C.raid||C.father)&&!(C.father&&(C.father.warn>0||C.father.end))&&(!!C.father||C.enemies.some(e=>e.state!=='flee'));}
 function logC(m){C.log.push({m,t:Date.now()});if(C.log.length>6)C.log.shift();}
@@ -697,8 +711,7 @@ function startRaid(force){
   C.raid={queue:q,spawnT:0,time:0,mother,kills:0,size:q.length,hunters:hunt};if(mother)spawnEnemy('mothership',W/2,-60);
   toast(hunt?'Patrol bounty hunters are after you, pirate!':mother?'Pirate MOTHERSHIP inbound!':'Pirate raid incoming!','gold');C.shield=maxShield();
 }
-function endRaid(won){if(!C.raid)return;C.raid=null;for(const e of C.enemies)e.state='flee';
-  const kills=C.raid?C.raid.kills:0;
+function endRaid(won){if(!C.raid)return;const kills=C.raid.kills||0;C.raid=null;for(const e of C.enemies)e.state='flee';
   if(won){const b=Math.round(15*eScale()*(1+.1*S.galaxy));addRes('salvage',b);toast('Raid repelled! +'+fmt(b)+' salvage','good');logC('Raid repelled at '+P[S.at].name+': '+kills+' kills, +'+fmt(b)+' salvage');S.stats.raidsWon=(S.stats.raidsWon||0)+1;addRep('patrol',10);checkAch();}
   C.nextRaid=(240+Math.random()*180)*pirateRaidGap();}
 function stationLoss(frac){const lost={};for(const k of RES){const a=S.res[k]*frac;if(a>0){S.res[k]=safe(S.res[k]-a);lost[k]=a;}}return lost;}
@@ -783,11 +796,12 @@ function updateCombat(dt,t){
       if(f.losses>0&&!f.beaten&&f.cd<=0&&!f.notified&&jumpProgress()>=FATHER_TRIGGER){f.notified=true;toast('The Father Ship awaits your challenge (Galaxy tab)','gold');updateBadges();}}
   }
   if(C.father)updateFather(dt);
-  if(C.raid){const Rd=C.raid;Rd.time+=dt;Rd.spawnT-=dt;if(Rd.queue.length&&Rd.spawnT<=0){spawnEnemy(Rd.queue.shift());Rd.spawnT=.8;}
-    if(!Rd.queue.length&&!C.enemies.some(e=>e.state!=='flee'))endRaid(true);else if(Rd.time>100)endRaid(false);}
+  if(C.raid){const Rd=C.raid;Rd.time+=dt;Rd.spawnT-=dt;const gap=Rd.armada?(Rd.spawnGap||.35):.8,batch=Rd.armada?(Rd.spawnBatch||4):1;
+    if(Rd.queue.length&&Rd.spawnT<=0){for(let bi=0;bi<batch&&Rd.queue.length;bi++)spawnEnemy(Rd.queue.shift());Rd.spawnT=gap;}
+    if(!Rd.queue.length&&!C.enemies.some(e=>e.state!=='flee'))endRaid(true);else if(Rd.time>(Rd.armada?180:100))endRaid(false);}
   // enemies
   const tx=g.sx,ty=g.sy;
-  for(let i=C.enemies.length-1;i>=0;i--){const e=C.enemies[i],T=ETYPES[e.type],sp=T.spd*m;e.t+=dt;e.flash=Math.max(0,e.flash-dt);
+  C._aiTick=(C._aiTick||0)+1;for(let i=C.enemies.length-1;i>=0;i--){const e=C.enemies[i],T=ETYPES[e.type],sp=T.spd*m;e.t+=dt;e.flash=Math.max(0,e.flash-dt);if(e._soft&&(C._aiTick&1)&&e.type!=='mothership'&&e.state!=='flee'&&!e.loot){e.x+=e.vx*dt;e.y+=e.vy*dt;continue;}e._soft=false;
     let gx=tx,gy=ty;
     if(e.state==='flee'||((!C.raid&&!C.father))){e.state='flee';const a=Math.atan2(e.y-ty,e.x-tx);e.vx=Math.cos(a)*sp*1.3;e.vy=Math.sin(a)*sp*1.3;}
     else if(e.type==='raider'){if(e.loot){const a=Math.atan2(e.y-ty,e.x-tx);e.vx=Math.cos(a)*sp*.8;e.vy=Math.sin(a)*sp*.8;}
@@ -1939,6 +1953,266 @@ function drawRivalMap(t){if(curFac()!=='pirate')return;const list=ensureTargets(
   ctx.font='800 9px system-ui,sans-serif';ctx.textAlign='center';ctx.fillStyle='#ffd0a8';ctx.fillText('T'+tg.tier,0,3);ctx.restore();}}
 function mapRivalCard(c,p){if(curFac()!=='pirate')return;const list=ensureTargets(),n=tgCount();list.forEach((tg,i)=>{if(i>=n||tg.pi!==p.i)return;const d=el('div','muted');d.style.marginTop='6px';live(d,e=>setHTML(e,`<b style="color:#ff9aa8">Rival outpost: ${tg.name} (T${tg.tier})</b> · defense ${fmt(tgDefense(tg.tier))} · stockpile ${Math.round(tgFill(tg)*100)}%`));c.appendChild(d);
   const bs=el('div','btns');bs.appendChild(btn('red',()=>'Raid rival outpost',null,()=>startMission({i}),()=>!raidBlock()&&!MG.on));c.appendChild(bs);});}
+/* ================= v11: Armada + Battle Moon + Moon Laser + Salvage Haul ================= */
+const MOON_UPS=['hull','dps','turrets','pd','laser','move'];
+const MOON_META={
+  hull:{name:'Hull Armor',desc:'Battle Moon hit points',svg:'<path d="M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z"/>'},
+  dps:{name:'Batteries',desc:'Turret firepower',svg:'<path d="M4 20L20 4M14 4h6v6M4 14l6 6"/>'},
+  turrets:{name:'Turret Count',desc:'Extra defense turrets',svg:'<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>'},
+  pd:{name:'Point Defense',desc:'Shoots down incoming missiles & bombs',svg:'<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z"/><path d="M9 12l2 2 4-4"/>'},
+  laser:{name:'Moon Laser Charge',desc:'Faster Moon Laser recharge',svg:'<circle cx="7" cy="17" r="3"/><path d="M9 15L20 4M15 4h5v5"/>'},
+  move:{name:'Move Speed',desc:'Faster redeploy between planets',svg:'<path d="M12 3c3 3 4 7 3 11h-6c-1-4 0-8 3-11z"/><path d="M9 14l-2 4h10l-2-4"/>'}
+};
+function newMoon(){return {owned:false,at:0,travel:null,ups:{hull:0,dps:0,turrets:0,pd:0,laser:0,move:0},laserCharge:0,assists:0,buys:0,hp:0};}
+function sanitizeMoon(o){
+  if(!o||typeof o!=='object'||!o.owned)return null;
+  const d=newMoon();const m={...d,...o,owned:true};
+  m.ups={...d.ups};for(const k of MOON_UPS)m.ups[k]=Math.max(0,Math.min(12,Math.floor(+((o.ups||{})[k])||0)));
+  m.at=Math.max(0,Math.floor(+o.at||0));m.buys=Math.max(0,Math.floor(+o.buys||0));
+  m.assists=Math.max(0,Math.floor(+o.assists||0));m.laserCharge=Math.max(0,+o.laserCharge||0);
+  m.hp=Math.max(0,+o.hp||0);
+  if(m.travel&&!(Number.isFinite(m.travel.to)&&Number.isFinite(m.travel.start)&&Number.isFinite(m.travel.dur)))m.travel=null;
+  return m;
+}
+const moon=()=>S.moon;
+const moonOwned=()=>!!(S.moon&&S.moon.owned);
+const moonLv=k=>moonOwned()?(S.moon.ups[k]||0):0;
+const combatSum=()=>{let s=0;if(S.combat)for(const k in S.combat)s+=S.combat[k]|0;return s;};
+function moonUnlocked(){if(S.galaxy<1)return false;if(combatSum()>=18)return true;const f=S.father&&S.father[S.galaxy];return !!(f&&f.met);}
+function moonBuyCost(){const g=S.galaxy,n=moonOwned()?S.moon.buys:0,k=pw(1.6,n);
+  return cc({ore:8e5*gCost()*k,crystal:3e5*gCost()*k,gas:3e5*gCost()*k,exotic:800*pw(30,Math.max(0,g-1))*k,salvage:1200*eScale()*k});}
+function moonUpCost(k,L){const base={hull:14,dps:16,turrets:18,pd:15,laser:22,move:12}[k]||14;
+  return cc({salvage:base*pw(1.42,L)*eScale(),ore:40*pw(1.35,L)*gCost(),crystal:(k==='laser'||k==='dps'?25:8)*pw(1.35,L)*gCost(),gas:(k==='move'?30:6)*pw(1.35,L)*gCost()});}
+function moonMaxHp(){return 2200*(1+.4*moonLv('hull'))*eScale();}
+function moonDps(){const L=moonLv('dps');return 55*(1+.35*L)*pw(1.08,L)*eScale();}
+function moonTurrets(){return 2+moonLv('turrets');}
+function moonPdChance(){return Math.min(.72,.18+.07*moonLv('pd'));}
+function moonLaserChargeTime(){return Math.max(20,50/(1+.15*moonLv('laser')));}
+function moonLaserCost(){return safe(Math.ceil(.45*shotCost()));}
+function moonLaserDmg(){return 2400*eScale()*(1+.25*moonLv('laser'));}
+function moonLaserReady(){return moonOwned()&&!S.moon.travel&&S.moon.laserCharge>=moonLaserChargeTime()&&S.res.exotic>=moonLaserCost();}
+function moonMoveTime(from,to){const base=travelTime(to)*(from===to?0:1);/* travelTime uses S.at — recompute */const d=pdist(from,to);
+  return Math.max(2,(2+d*25)*.32/(1+.2*S.mods.engine)/(1+.1*perk('travel'))/travelK()/(1+.18*moonLv('move')));}
+function moonAtPlanet(){return moonOwned()&&!S.moon.travel?S.moon.at:-1;}
+function moonDefending(){return moonAtPlanet()===S.at&&!S.travel&&inCombat()&&!(C.father&&(C.father.warn>0||C.father.end));}
+function buyMoon(){if(moonOwned()||!moonUnlocked())return false;const c=moonBuyCost();if(!canAfford(c))return false;pay(c);
+  S.moon=newMoon();S.moon.owned=true;S.moon.buys=1;S.moon.at=S.at;S.moon.hp=moonMaxHp();S.moon.laserCharge=0;
+  toast('Battle Moon constructed and parked at '+P[S.at].name+'!','gold');sfx('coin');vib([20,40,20]);C.shake=Math.max(C.shake,6);save();renderPanel();return true;}
+function buyMoonUp(k){if(!moonOwned()||!MOON_META[k])return false;const L=moonLv(k);if(L>=12)return false;const b=bulk(L2=>moonUpCost(k,L2),L);if(!canAfford(b.c))return false;pay(b.c);
+  S.moon.ups[k]=L+b.n;if(k==='hull')S.moon.hp=Math.min(moonMaxHp(),(S.moon.hp||0)+moonMaxHp()*.2);sfx('coin');save();return true;}
+function startMoonMove(to){if(!moonOwned()||S.moon.travel||to==null||!P[to])return false;
+  if(!(S.outposts[to]||to===S.at)){toast('Battle Moon can only park at owned outposts','');return false;}
+  if(to===S.moon.at){toast('Battle Moon is already there','');return false;}
+  const dur=moonMoveTime(S.moon.at,to)*1000;S.moon.travel={from:S.moon.at,to,start:Date.now(),dur};toast('Battle Moon en route to '+P[to].name+' ('+fmtTime(Math.ceil(dur/1000))+')','gold');sfx('zap');save();if(R.tab==='station'||R.tab==='map'||R.tab==='outposts')renderPanel();return true;}
+function updateMoonTravel(){const m=moon();if(!m||!m.travel)return;if(Date.now()>=m.travel.start+m.travel.dur){m.at=m.travel.to;m.travel=null;m.hp=Math.min(moonMaxHp(),m.hp||moonMaxHp());
+  toast('Battle Moon arrived at '+P[m.at].name,'good');sfx('coin');save();if(R.tab==='station'||R.tab==='map'||R.tab==='outposts')renderPanel();}}
+function moonOnJump(){if(!moonOwned())return;S.moon.travel=null;S.moon.at=0;S.moon.hp=moonMaxHp();}
+
+/* ---- Armada ---- */
+C._aiN=0;
+function armadaSize(){return clamp(100+12*S.galaxy+Math.floor(combatSum()/8),100,140);}
+function armadaMothers(){return 2+Math.min(2,S.galaxy);}
+function shouldEscalateArmada(){if(S.galaxy<1||C.armadaWarn>0||C.raid||C.father||S.travel)return false;const p=Math.min(.18,.10+.02*S.galaxy);return Math.random()<p;}
+function startArmadaWarning(){if(C.raid||C.father||C.armadaWarn>0)return;C.armadaWarn=22;sfx('alarm');setTimeout(()=>sfx('alarm'),600);setTimeout(()=>sfx('alarm'),1200);
+  toast('ARMADA INCOMING — reposition the Battle Moon & charge lasers!','gold');vib([40,40,80,40,80]);C.shake=Math.max(C.shake,5);updateBadges();if(R.tab==='map'||R.tab==='outposts'||R.tab==='station')renderPanel();}
+function startArmada(){if(C.raid||C.father||S.travel)return;C.armadaWarn=0;S.raids=(S.raids||0)+1;const n=armadaSize(),ms=armadaMothers();
+  const q=[];for(let i=0;i<n;i++)q.push(pickType());
+  C.raid={queue:q,spawnT:0,time:0,mother:true,kills:0,size:q.length+ms,hunters:false,armada:true,spawnBatch:4,spawnGap:.35};
+  for(let i=0;i<ms;i++){const e=spawnEnemy('mothership',W*(.15+.7*i/(ms-1||1)),-50-i*18);e.px=W*(.18+.64*i/(ms-1||1));e.py=H*(.12+.08*(i%2));}
+  C.shield=maxShield();C.shake=Math.max(C.shake,8);toast('ARMADA HAS ARRIVED — '+n+' ships · '+ms+' motherships!','gold');sfx('alarm');logC('Armada inbound at '+P[S.at].name+': '+n+'+'+ms+' motherships');
+  if(moonDefending()||(moonOwned()&&moonAtPlanet()===S.at)){S.moon.hp=S.moon.hp||moonMaxHp();}
+  S.stats.armadas=(S.stats.armadas||0)+1;updateBadges();}
+function armadaActive(){return !!(C.raid&&C.raid.armada);}
+
+/* wrap startRaid for escalation + force flags */
+(function(){const _sr=startRaid;startRaid=function(force){
+  if(force==='armada'){startArmadaWarning();return;}
+  if(force==='armadaNow'){startArmada();return;}
+  if(force==='hunters'||force==='mothership'||force==='mix')return _sr(force);
+  if(!force&&shouldEscalateArmada()){startArmadaWarning();return;}
+  return _sr(force);
+};})();
+
+/* wrap endRaid for salvage haul + armada rewards */
+(function(){const _er=endRaid;endRaid=function(won){if(!C.raid)return;const was=C.raid,armada=!!was.armada,kills=was.kills||0;
+  C.raid=null;for(const e of C.enemies)e.state='flee';
+  if(won){const b=Math.round((armada?80:15)*eScale()*(1+.1*S.galaxy));addRes('salvage',b);
+    toast((armada?'Armada repelled!':'Raid repelled!')+' +'+fmt(b)+' salvage','good');
+    logC((armada?'Armada':'Raid')+' repelled at '+P[S.at].name+': '+kills+' kills, +'+fmt(b)+' salvage');
+    S.stats.raidsWon=(S.stats.raidsWon||0)+1;if(armada){S.stats.armadasWon=(S.stats.armadasWon||0)+1;C.shake=Math.max(C.shake,12);}
+    addRep('patrol',armada?25:10);checkAch();
+    if(armada)spawnSalvageHaul(true);}
+  else{if(armada)spawnSalvageHaul(false);}
+  C.nextRaid=(240+Math.random()*180)*pirateRaidGap();
+  if(R.tab==='station')renderPanel();
+};})();
+
+/* Salvage Haul */
+function spawnSalvageHaul(won){const n=won?10+Math.floor(Math.random()*5):4+Math.floor(Math.random()*3);const crates=[];
+  for(let i=0;i<n;i++){const a=Math.random()*TAU,rr=Math.min(W,H)*(.18+.28*Math.random());
+    crates.push({x:W/2+Math.cos(a)*rr,y:H*.42+Math.sin(a)*rr*.7,r:16+Math.random()*6,life:30,mul:won?1:.5,spin:Math.random()*TAU});}
+  C.haul={crates,t:30,won};toast(won?'Wreckage drifting — tap crates for a Salvage Haul!':'Scattered wreckage — grab what you can','gold');}
+function updateHaul(dt){const H0=C.haul;if(!H0)return;H0.t-=dt;for(const c of H0.crates){c.life-=dt;c.spin+=dt*1.2;c.y+=Math.sin(c.spin)*6*dt;c.x+=Math.cos(c.spin*.7)*4*dt;}
+  H0.crates=H0.crates.filter(c=>c.life>0);if(H0.t<=0||!H0.crates.length){if(H0.crates.length){let sal=0;for(const c of H0.crates){const g=collectHaulCrate(c);sal+=g.sal;}toast('Leftover wreckage auto-salvaged (+'+fmt(sal)+')','good');}C.haul=null;}}
+function collectHaulCrate(c){const U=stationPower(),sal=Math.round(18*eScale()*c.mul),amt=12*U*c.mul;addRes('salvage',sal);
+  const w={...P[S.at].w};w.exotic=0;let s=0;for(const k of RES)s+=w[k]||0;for(const k of RES)if(s>0&&w[k]>0)addRes(k,amt*(w[k]/s));return {sal};}
+function tapHaul(x,y){const H0=C.haul;if(!H0)return false;let best=null,bd=1e9;for(const c of H0.crates){const d=Math.hypot(c.x-x,c.y-y);if(d<Math.max(34,c.r*1.8)&&d<bd){bd=d;best=c;}}
+  if(!best)return false;const U=stationPower(),sal=Math.round(18*eScale()*best.mul),amt=12*U*best.mul;
+  addRes('salvage',sal);const w={...P[S.at].w};w.exotic=0;let s=0;for(const k of RES)s+=w[k]||0;for(const k of RES)if(s>0&&w[k]>0)addRes(k,amt*(w[k]/s));
+  burst(best.x,best.y,18,{ore:1,salvage:1});floatText(best.x,best.y-10,'+'+fmt(sal)+' salvage','#c9d1e6');sfx('coin');vib(12);
+  H0.crates.splice(H0.crates.indexOf(best),1);if(!H0.crates.length)C.haul=null;return true;}
+function drawHaul(t){const H0=C.haul;if(!H0)return;for(const c of H0.crates){ctx.save();ctx.translate(c.x,c.y);ctx.rotate(c.spin*.3);
+  const g=ctx.createLinearGradient(-c.r,-c.r,c.r,c.r);g.addColorStop(0,'#c9d1e6');g.addColorStop(.5,'#6a738a');g.addColorStop(1,'#2a3040');
+  ctx.fillStyle=g;ctx.beginPath();ctx.moveTo(c.r*.9,0);ctx.lineTo(c.r*.3,c.r*.7);ctx.lineTo(-c.r*.6,c.r*.5);ctx.lineTo(-c.r*.8,-c.r*.2);ctx.lineTo(-c.r*.1,-c.r*.75);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='rgba(255,220,140,.7)';ctx.lineWidth=1.5;ctx.stroke();ctx.globalCompositeOperation='lighter';glow('#ffd36b',0,0,c.r*.9,.35+.25*Math.sin(t*5+c.spin));ctx.globalCompositeOperation='source-over';
+  ctx.restore();}
+  ctx.font='bold 11px system-ui,sans-serif';ctx.textAlign='center';ctx.fillStyle='#ffe3a3';ctx.fillText('SALVAGE HAUL · '+Math.ceil(H0.t)+'s · tap crates',W/2,H-36);}
+
+/* Battle Moon combat */
+function moonPos(){const g=R.geo;if(!g)return {x:W*.78,y:H*.22};return {x:g.cx+g.R*1.15,y:g.cy-g.R*.55};}
+function updateMoonCombat(dt,t){if(!moonOwned())return;updateMoonTravel();
+  /* charge Moon Laser */
+  if(!document.hidden&&!S.moon.travel)S.moon.laserCharge=Math.min(moonLaserChargeTime(),S.moon.laserCharge+dt*(inCombat()?2:1));
+  if(!moonDefending()){moonFireBtn(false);return;}
+  const m=S.moon;if(!(m.hp>0))m.hp=moonMaxHp();
+  /* regenerate slowly */
+  m.hp=Math.min(moonMaxHp(),m.hp+moonMaxHp()*dt/90);
+  const mp=moonPos(),targets=C.enemies.filter(e=>e.vis>.5&&e.state!=='flee');
+  const nT=moonTurrets(),per=moonDps()/nT;
+  for(let k=0;k<nT;k++){if(!targets.length)break;const e=targets[k%targets.length];
+    /* soft fire packet */
+    e._moonAcc=(e._moonAcc||0)+per*dt;if(e._moonAcc<per*.45)continue;const d=e._moonAcc;e._moonAcc=0;
+    if(damageEnemy(e,d,false)){/* assist credit if dead */}
+    if(!C.enemies.includes(e)){m.assists=(m.assists||0)+1;if(m.assists%25===0)toast('Battle Moon assist streak: '+m.assists,'gold');}
+    else sfx('zap');}
+  moonFireBtn(true);}
+function moonPointDefense(shot){if(!moonDefending()||!(S.moon.hp>0))return false;if(shot.kind!=='station'&&shot.kind!=='outpost')return false;
+  if(Math.random()>moonPdChance())return false;burst(shot.x,shot.y,5,{gas:1});floatText(shot.x,shot.y-8,'PD','#9fe6ff');return true;}
+function fireMoonLaser(){if(!moonLaserReady()||S.travel)return false;const fuel=moonLaserCost();S.res.exotic=safe(S.res.exotic-fuel);S.moon.laserCharge=0;
+  const d=moonLaserDmg();const mp=moonPos();sfx('laser');vib([25,40,70]);C.shake=Math.max(C.shake,14);R.moonLaserFx=1.1;R.moonLaserFrom={x:mp.x,y:mp.y};
+  let tg=C.enemies.filter(e=>e.type==='mothership'&&e.state!=='flee').sort((a,b)=>b.hp-a.hp)[0];
+  if(!tg){/* densest cluster: pick enemy with most neighbors */
+    let best=null,bs=-1;for(const e of C.enemies){if(e.vis<.5||e.state==='flee')continue;let n=0;for(const o of C.enemies)if(o!==e&&Math.hypot(o.x-e.x,o.y-e.y)<e.r*4)n++;if(n>bs){bs=n;best=e;}}tg=best;}
+  if(tg){R.moonLaserTo={x:tg.x,y:tg.y};damageEnemy(tg,d,true);const rad=Math.max(60,tg.r*3.5);
+    for(const e of [...C.enemies]){if(e===tg||e.state==='flee')continue;if(Math.hypot(e.x-tg.x,e.y-tg.y)<rad)damageEnemy(e,d*.3,false);}
+    floatText(tg.x,tg.y-tg.r-12,'MOON LASER -'+fmt(d),'#b8f0ff');}
+  else{R.moonLaserTo={x:W/2,y:H*.3};floatText(mp.x,mp.y-20,'MOON LASER','#b8f0ff');}
+  S.stats.moonShots=(S.stats.moonShots||0)+1;return true;}
+function moonFireBtn(show){const b=$('#moonfire');if(!b)return;
+  const ready=moonLaserReady()&&inCombat()&&moonAtPlanet()===S.at&&!S.moon.travel;
+  b.classList.toggle('hidden',!(show&&moonOwned()&&moonAtPlanet()===S.at&&!S.moon.travel&&(inCombat()||C.armadaWarn>0)));
+  b.classList.toggle('ready',!!ready);b.style.setProperty('--fc',ready?'#9fe6ff':'#6a7aaa');
+  const lb=b.querySelector('.lb');if(lb)lb.textContent=ready?'FIRE':(moonOwned()?Math.floor(clamp(S.moon.laserCharge/moonLaserChargeTime(),0,1)*100)+'%':'');}
+
+/* Battle Moon art (lavender-blue lit metal) */
+function moonArt(x,R0){
+  x.beginPath();x.arc(0,0,R0,0,TAU);const g=x.createRadialGradient(-R0*.35,-R0*.4,R0*.1,0,0,R0);g.addColorStop(0,'#e8eeff');g.addColorStop(.35,'#9fb0ff');g.addColorStop(.7,'#3a4a8a');g.addColorStop(1,'#121a3a');x.fillStyle=g;x.fill();
+  x.save();x.clip();x.strokeStyle='rgba(20,30,70,.45)';x.lineWidth=1;for(let i=-4;i<=4;i++){x.beginPath();x.moveTo(i*R0*.22,-R0);x.lineTo(i*R0*.22,R0);x.stroke();}
+  for(let j=-3;j<=3;j++){x.beginPath();x.moveTo(-R0,j*R0*.28);x.lineTo(R0,j*R0*.28);x.stroke();}
+  /* crater wells */
+  for(const [cx,cy,cr] of [[-.35,-.2,.18],[.4,.15,.14],[-.1,.4,.12],[.25,-.4,.1]]){const cg=x.createRadialGradient(cx*R0,cy*R0,0,cx*R0,cy*R0,cr*R0);cg.addColorStop(0,'rgba(10,16,40,.7)');cg.addColorStop(1,'rgba(10,16,40,0)');x.fillStyle=cg;x.beginPath();x.arc(cx*R0,cy*R0,cr*R0,0,TAU);x.fill();}
+  x.restore();
+  x.strokeStyle='#c5d0ff';x.lineWidth=Math.max(1.5,R0*.06);x.beginPath();x.arc(0,0,R0,0,TAU);x.stroke();
+  /* ring deck */
+  x.strokeStyle='rgba(159,176,255,.55)';x.lineWidth=Math.max(2,R0*.1);x.beginPath();x.ellipse(0,0,R0*1.28,R0*.42,-.3,0,TAU);x.stroke();
+  /* laser hardpoint */
+  x.fillStyle='#1a2458';x.beginPath();x.arc(R0*.55,-R0*.15,R0*.22,0,TAU);x.fill();x.strokeStyle='#9fe6ff';x.lineWidth=1.5;x.stroke();
+  const lg=x.createRadialGradient(R0*.55,-R0*.15,0,R0*.55,-R0*.15,R0*.16);lg.addColorStop(0,'#fff');lg.addColorStop(.4,'#9fe6ff');lg.addColorStop(1,'#2a5080');x.fillStyle=lg;x.beginPath();x.arc(R0*.55,-R0*.15,R0*.12,0,TAU);x.fill();
+  /* turrets */
+  for(const a of[-.9,-.3,.4,1.0]){const tx=Math.cos(a)*R0*.85,ty=Math.sin(a)*R0*.85;x.fillStyle='#2a3a7a';x.beginPath();x.arc(tx,ty,R0*.12,0,TAU);x.fill();x.strokeStyle='#b8c4ff';x.lineWidth=1;x.stroke();}}
+function moonSpr(R0){const S=Math.ceil(R0*2.9);return sprite('bmoon:'+Math.round(R0),S,S,(x,w,h)=>{x.translate(w/2,h/2);moonArt(x,R0);});}
+function drawBattleMoon(t){if(!moonOwned()||S.moon.travel)return;if(R.tab==='map')return;if(moonAtPlanet()!==S.at||S.travel)return;
+  const mp=moonPos(),R0=Math.max(28,Math.min(W,H)*.09);ctx.save();
+  blit(moonSpr(R0),mp.x,mp.y);
+  /* turret tracking beams when fighting */
+  if(moonDefending()){const targets=C.enemies.filter(e=>e.vis>.5&&e.state!=='flee');const nT=Math.min(moonTurrets(),4);
+    for(let k=0;k<nT;k++){if(!targets.length)break;const e=targets[k%targets.length];if(Math.sin(t*30+k)<.2)continue;
+      ctx.strokeStyle='rgba(159,230,255,.55)';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(mp.x,mp.y);ctx.lineTo(e.x,e.y);ctx.stroke();}}
+  if(R.moonLaserFx>0){const k=R.moonLaserFx/1.1;const a=R.moonLaserFrom||mp,b=R.moonLaserTo||{x:W/2,y:H*.3};
+    ctx.lineCap='round';for(const [lw,col] of [[18*k,'rgba(120,220,255,.3)'],[7*k,'rgba(180,240,255,.85)'],[2.5,'#fff']]){ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    ctx.globalCompositeOperation='lighter';glow('#9fe6ff',b.x,b.y,40*k,.7,true);ctx.globalCompositeOperation='source-over';R.moonLaserFx-=1/60;}
+  /* HP bar */
+  if(inCombat()||(S.moon.hp>0&&S.moon.hp<moonMaxHp())){const w=R0*2,y=mp.y-R0-10;ctx.fillStyle='rgba(0,0,0,.65)';ctx.fillRect(mp.x-w/2-1,y-1,w+2,5);ctx.fillStyle='#9fe6ff';ctx.fillRect(mp.x-w/2,y,w*clamp(S.moon.hp/moonMaxHp(),0,1),3);}
+  ctx.restore();}
+function drawMoonMap(t){if(!moonOwned())return;const m=S.moon;let x,y;
+  if(m.travel){const a=mapPos(P[m.travel.from]),b=mapPos(P[m.travel.to]),k=clamp((Date.now()-m.travel.start)/m.travel.dur,0,1);x=lerp(a.x,b.x,k);y=lerp(a.y,b.y,k);
+    ctx.strokeStyle='rgba(159,176,255,.5)';ctx.lineWidth=1.2;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.setLineDash([]);}
+  else{const p=mapPos(P[m.at]);x=p.x+14;y=p.y-14;}
+  ctx.save();ctx.translate(x,y);const r=7;blit(moonSpr(r*1.1),0,0);ctx.restore();}
+
+/* wrap combat systems */
+(function(){
+  const _uc=updateCombat;updateCombat=function(dt,t){
+    if(C.armadaWarn>0){C.armadaWarn-=dt;if((C._awPulse=(C._awPulse||0)+dt)>2){C._awPulse=0;C.shake=Math.max(C.shake,3);}if(C.armadaWarn<=0)startArmada();}
+    _uc(dt,t);
+    updateMoonCombat(dt,t);updateHaul(dt);softCapEnemyAI();
+    if(moonDefending()&&C.shots.length){for(let i=C.shots.length-1;i>=0;i--){if(moonPointDefense(C.shots[i]))C.shots.splice(i,1);}}
+  };
+  const _dc=drawCombat;drawCombat=function(dt,t){_dc(dt,t);drawBattleMoon(t);drawHaul(t);
+    if(C.armadaWarn>0){ctx.font='900 '+Math.round(Math.min(W,H)*.06)+'px system-ui,sans-serif';ctx.textAlign='center';
+      ctx.fillStyle=`rgba(255,60,90,${.55+.45*Math.sin(t*10)})`;ctx.fillText('ARMADA INCOMING',W/2,H*.58);
+      ctx.font='bold 14px system-ui,sans-serif';ctx.fillStyle='#ffd0d8';ctx.fillText(Math.ceil(C.armadaWarn)+'s — move Battle Moon · charge lasers',W/2,H*.58+24);}};
+  const _ct=combatTap;combatTap=function(x,y){if(tapHaul(x,y))return true;return _ct(x,y);};
+  const _dm=drawMap;drawMap=function(t){_dm(t);drawMoonMap(t);};
+  const _jg=jumpGalaxy;jumpGalaxy=function(){_jg();moonOnJump();};
+  const _rw=remapWorld;remapWorld=function(oW,oH){_rw(oW,oH);if(C.haul){const fx=W/oW,fy=H/oH;for(const c of C.haul.crates){c.x*=fx;c.y*=fy;}}};
+  const _ds=damageStation;damageStation=function(d){if(moonDefending()&&S.moon.hp>0){const soak=d*.35;S.moon.hp-=soak;if(S.moon.hp<=0){S.moon.hp=0;floatText(moonPos().x,moonPos().y,'Battle Moon disabled!','#ff9aa8');toast('Battle Moon hull breached — retreating to repair','');}
+    return _ds(d*.65);}return _ds(d);};
+})();
+
+function softCapEnemyAI(){if(!C.raid||!C.raid.armada)return;const live=C.enemies;if(live.length<=48)return;
+  const g=R.geo;if(!g)return;const scored=live.map(e=>({e,d:Math.hypot(e.x-g.sx,e.y-g.sy)}));scored.sort((a,b)=>a.d-b.d);
+  for(let i=48;i<scored.length;i++){const e=scored[i].e;if(e.type==='mothership'||e.state==='flee'||e.loot)continue;e._soft=true;
+    const a=Math.atan2(e.y-g.sy,e.x-g.sx)+.02;e.vx=Math.cos(a)*8;e.vy=Math.sin(a)*8;}}
+
+/* extend outDefense when moon parked at that outpost */
+(function(){const _od=outDefense;outDefense=function(pi){let d=_od(pi);if(moonOwned()&&!S.moon.travel&&S.moon.at===+pi)d+=moonDps()*.8+moonMaxHp()*.01;return d;};})();
+
+/* UI helpers used by js3 */
+function moonPanelCard(pn){
+  const wrap=el('div');wrap.id='mooncard';
+  if(!moonOwned()){
+    if(S.galaxy<1){pn.appendChild(el('div','card',`<div class="row" style="opacity:.6"><div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16"/></svg></div><div class="grow"><div class="title" style="font-size:14px">Battle Moon <span class="lv">LOCKED</span></div><div class="sub">Reach Galaxy 2 and arm your station to unlock this deployable defense satellite.</div></div></div>`));return;}
+    const locked=!moonUnlocked();const c=el('div','card'+(locked?'':' hl'));
+    const info=el('div');live(info,e=>setHTML(e,`<div class="row"><div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><ellipse cx="12" cy="12" rx="10" ry="3.5" transform="rotate(-20 12 12)"/></svg></div><div class="grow"><div class="title" style="font-size:14px">Battle Moon ${locked?'<span class="lv">LOCKED</span>':'<span class="lv" style="background:#5a3a8a">SUPER</span>'}</div><div class="sub">${locked?'Need combat upgrades (sum ≥ 18) or meet the Father Ship.':'One-of-a-kind defense satellite. Deploy it to any owned outpost. Own upgrade tree + Moon Laser.'}</div></div></div>`));
+    c.appendChild(info);
+    if(!locked){const bs=el('div','btns');bs.appendChild(btn('purple',()=>'Construct Battle Moon',()=>moonBuyCost(),()=>buyMoon(),()=>!moonOwned()&&canAfford(moonBuyCost())));c.appendChild(bs);}
+    pn.appendChild(c);return;}
+  const m=S.moon,c=el('div','card hl');
+  const hd=el('div');live(hd,e=>{const trav=m.travel;const where=trav?'En route to '+P[trav.to].name+' ('+fmtTime(Math.ceil((trav.start+trav.dur-Date.now())/1000))+')':'Parked at '+(P[m.at]?P[m.at].name:'?');
+    setHTML(e,`<div class="row"><div class="icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><ellipse cx="12" cy="12" rx="10" ry="3.5" transform="rotate(-20 12 12)"/></svg></div><div class="grow"><div class="title" style="font-size:14px">Battle Moon <span class="lv" style="background:#3a6aaa">ONLINE</span></div><div class="sub">${where} · hull ${fmt(m.hp||moonMaxHp())}/${fmt(moonMaxHp())} · assists ${fmt(m.assists||0)}</div></div></div>
+      <div class="bar" style="margin-top:4px"><div style="width:${(clamp((m.hp||0)/moonMaxHp(),0,1)*100).toFixed(1)}%;background:#9fe6ff"></div></div>
+      <div class="muted" style="margin-top:4px">Moon Laser: ${moonLaserReady()?'READY':Math.floor(clamp(m.laserCharge/moonLaserChargeTime(),0,1)*100)+'%'} · cost <span class="c"><i style="background:${RINFO.exotic.c}"></i>${fmt(moonLaserCost())}</span></div>`)});
+  c.appendChild(hd);
+  const bs=el('div','btns');
+  bs.appendChild(btn('alt',()=>moonLaserReady()?'Fire Moon Laser':'Moon Laser '+Math.floor(clamp(m.laserCharge/moonLaserChargeTime(),0,1)*100)+'%',()=>({exotic:moonLaserCost()}),()=>fireMoonLaser(),()=>moonLaserReady()&&!m.travel));
+  if(C.armadaWarn>0||C.oraid){const pi=C.oraid?C.oraid.pi:(C.armadaWarn>0?S.at:-1);
+    if(pi>=0&&m.at!==pi&&!m.travel)bs.appendChild(btn('red',()=>'Move to defend '+(P[pi]?P[pi].name:''),null,()=>startMoonMove(pi),()=>!!S.outposts[pi]||pi===S.at));}
+  c.appendChild(bs);
+  /* quick move buttons to outposts */
+  const keys=Object.keys(S.outposts).map(Number);if(S.at!=null&&keys.indexOf(S.at)<0)keys.push(S.at);
+  if(keys.length){const mv=el('div','muted');mv.style.marginTop='6px';mv.textContent='Redeploy:';c.appendChild(mv);const row=el('div','btns');
+    for(const pi of keys.sort((a,b)=>a-b).slice(0,6)){if(pi===m.at&&!m.travel)continue;
+      row.appendChild(btn('ghost',()=>P[pi].name+' ('+fmtTime(Math.ceil(moonMoveTime(m.at,pi)))+')',null,()=>startMoonMove(pi),()=>!m.travel&&pi!==m.at));}
+    c.appendChild(row);}
+  pn.appendChild(c);
+  for(const k of MOON_UPS){const M=MOON_META[k],card=el('div','card');const r=el('div','row');r.appendChild(el('div','icon',`<svg viewBox="0 0 24 24">${M.svg}</svg>`));
+    const info=el('div','grow');live(info,e=>{const L=moonLv(k);const eff=k==='hull'?fmt(moonMaxHp())+' HP':k==='dps'?fmt(moonDps())+' dps':k==='turrets'?moonTurrets()+' turrets':k==='pd'?Math.round(moonPdChance()*100)+'% intercept':k==='laser'?fmtClock(moonLaserChargeTime())+' charge':fmtTime(Math.ceil(moonMoveTime(0,Math.min(1,P.length-1))))+' typ. move';
+      setHTML(e,`<div class="title" style="font-size:14px">${M.name}<span class="lv">Lv ${L}</span></div><div class="sub">${M.desc} · ${eff}</div>`);});r.appendChild(info);
+    r.appendChild(btn('',()=>'Upgrade +'+bulk(L=>moonUpCost(k,L),moonLv(k)).n,()=>bulk(L=>moonUpCost(k,L),moonLv(k)).c,()=>buyMoonUp(k),()=>moonLv(k)<12));
+    card.appendChild(r);pn.appendChild(card);}
+}
+function moonMapBanner(pn){if(C.armadaWarn>0){const c=el('div','card warn');live(c,e=>setHTML(e,`<div class="title" style="color:#ff9aa8">ARMADA INCOMING · ${Math.ceil(C.armadaWarn)}s</div><div class="sub">A massive pirate fleet is about to hit ${P[S.at].name}. Reposition the Battle Moon and fire the Super Laser / Moon Laser.</div>`));
+  if(moonOwned()&&!S.moon.travel&&S.moon.at!==S.at){const bs=el('div','btns');bs.appendChild(btn('red',()=>'Move Battle Moon here',null,()=>startMoonMove(S.at)));c.appendChild(bs);}
+  pn.appendChild(c);}
+  if(moonOwned()&&S.moon.travel){const tr=S.moon.travel;pn.appendChild(el('div','card',`<div class="title">Battle Moon in transit</div><div class="sub">${P[tr.from].name} → ${P[tr.to].name} · ${fmtTime(Math.ceil((tr.start+tr.dur-Date.now())/1000))}</div>`));}}
+function moonOutpostRow(pi,c){if(!moonOwned())return;const here=S.moon.at===pi&&!S.moon.travel;const d=el('div');live(d,e=>setHTML(e,`<div class="row" style="margin-top:6px;font-size:12px"><div class="grow">Battle Moon ${here?'<span class="lv" style="background:#3a6aaa">PARKED</span>':S.moon.travel&&S.moon.travel.to===pi?'<span class="tag">INBOUND</span>':'—'}</div></div>`));c.appendChild(d);
+  if(!here&&!S.moon.travel&&(S.outposts[pi]||pi===S.at)){const bs=el('div','btns');bs.appendChild(btn('ghost',()=>'Park Battle Moon ('+fmtTime(Math.ceil(moonMoveTime(S.moon.at,pi)))+')',null,()=>startMoonMove(pi)));c.appendChild(bs);}}
+
+/* offline armada toast hook — called from welcome path via wrap */
+function armadaOfflineToast(secs){if(S.galaxy<1||!(secs>=600))return;if(Math.random()<Math.min(.35,.08*secs/3600))toast('Armada sensors swept the system while you were away — the fleet passed by.','gold');}
+
+console.log('v11 armada/moon module loaded');
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -2003,6 +2277,7 @@ function pStation(pn){
     r.appendChild(btn('',()=>{const b=bulk(M.cost,S.mods[k]);return 'Upgrade +'+b.n;},()=>bulk(M.cost,S.mods[k]).c,()=>buyMod(k)));
     c.appendChild(r);pn.appendChild(c);}
   const dh=el('div','row');dh.innerHTML='<div class="h grow" style="margin:10px 2px 6px">Defense</div>';const sv=el('div','muted');live(sv,e=>setHTML(e,`<span class="c"><i style="background:${RINFO.salvage.c}"></i><b style="color:#fff">${fmt(S.res.salvage||0)}</b> salvage</span>`));dh.appendChild(sv);pn.appendChild(dh);
+  moonPanelCard(pn);
   const hb=el('div','card');live(hb,e=>setHTML(e,`<div class="row" style="font-size:12px"><div class="grow">Station hull ${fmt(C.hp)} / ${fmt(maxHull())}</div><div class="muted">${inCombat()?'<b style="color:#ff8a8a">IN COMBAT</b>':outCount()?'Pirate raids target you while the game is open':'Pirates show up once you own an outpost'}</div></div><div class="bar" style="margin-top:4px"><div style="width:${(clamp(C.hp/maxHull(),0,1)*100).toFixed(1)}%"></div></div><div class="muted" style="margin-top:4px">Destroy pirates for salvage. Raiders steal cargo, Gunships disable fighters, Bombers hit outpost shields, Cloakers blink in and out.</div>`));pn.appendChild(hb);
   const lg=el('div','card');live(lg,e=>{e.style.display=C.log.length?'':'none';setHTML(e,'<div class="sub" style="margin-bottom:4px"><b>Combat log</b></div>'+C.log.slice().reverse().map(l=>`<div class="muted">${l.m}</div>`).join(''));});pn.appendChild(lg);
   for(const k in CMODS){const M=CMODS[k];const c=el('div','card');const r=el('div','row');r.appendChild(el('div','icon',`<svg viewBox="0 0 24 24">${M.svg}</svg>`));
@@ -2027,9 +2302,11 @@ function pOutposts(pn){
     c.appendChild(bs);
     const dr=el('div');live(dr,e=>{const th=C.oraid&&C.oraid.pi===pi;setHTML(e,`<div class="row" style="margin-top:8px;font-size:12px"><div class="grow">Turrets <span class="lv">Lv ${o.tur||0}</span> · defense ${fmt(outDefense(pi))} · repels ~${Math.round(repelChance(pi)*100)}% of raids</div>${th?`<span class="tag" style="background:#ff4d5e;color:#fff">PIRATES ${Math.ceil(C.oraid.t)}s</span>`:''}</div>`);});c.appendChild(dr);
     const bs2=el('div','btns');bs2.appendChild(btn('ghost',()=>'Turrets +'+bulk(L=>turCost(pi,L),o.tur||0).n,()=>bulk(L=>turCost(pi,L),o.tur||0).c,()=>buyTurret(pi)));c.appendChild(bs2);
+    moonOutpostRow(pi,c);
     pn.appendChild(c);}
 }
 function pMap(pn){
+  moonMapBanner(pn);
   if(C.oraid&&S.outposts[C.oraid.pi]){const pi=C.oraid.pi,c=el('div','card warn');live(c,e=>setHTML(e,C.oraid?`<div class="title" style="color:#ff9aa8">Pirates heading for ${P[pi].name}: ${Math.ceil(C.oraid.t)}s</div><div class="sub">Travel there in time to fight them live, or its turrets (repel ~${Math.round(repelChance(pi)*100)}%) will defend it alone.</div>`:'<div class="sub">The pirate fleet has arrived.</div>'));
     if(S.at!==pi||S.travel){const bs=el('div','btns');bs.appendChild(btn('red',()=>'Go defend',()=>S.travel?null:travelCost(pi,true),()=>startTravel(pi,true),()=>!!C.oraid&&!S.travel&&canAfford(travelCost(pi,true))));c.appendChild(bs);}pn.appendChild(c);}
   if(R.sel==null){pn.appendChild(el('div','tip','Tap a planet on the map (or pick one below) to see its resources and travel there. Farther planets are richer but cost more gas to reach and to build on.'));}
@@ -2041,7 +2318,7 @@ function pMap(pn){
       bs.appendChild(btn('',()=>'Travel ('+fmtTime(Math.ceil(travelTime(p.i)))+')',()=>travelCost(p.i),()=>startTravel(p.i),()=>!S.travel&&canAfford(travelCost(p.i))));
       bs.appendChild(btn('purple',()=>'Instant warp',()=>travelCost(p.i,true),()=>startTravel(p.i,true),()=>!S.travel&&canAfford(travelCost(p.i,true))));
       c.appendChild(bs);}
-    mapRivalCard(c,p);pn.appendChild(c);}
+    mapRivalCard(c,p);if(moonOwned()&&(S.outposts[p.i]||p.i===S.at)&&!(S.moon.at===p.i&&!S.moon.travel)){const bs2=el('div','btns');bs2.appendChild(btn('ghost',()=>'Park Battle Moon ('+fmtTime(Math.ceil(moonMoveTime(S.moon.at,p.i)))+')',null,()=>startMoonMove(p.i),()=>!S.moon.travel));c.appendChild(bs2);}pn.appendChild(c);}
   pn.appendChild(el('div','h','Planets in '+GAL.name));
   for(const p of P){const o=S.outposts[p.i];const r=el('div','card');r.style.cursor='pointer';r.style.padding='7px 10px';
     r.innerHTML=`<div class="row"><div class="dot" style="background:${hsl(p.hue,60,55)};color:${hsl(p.hue,60,55)};width:14px;height:14px"></div><div class="grow"><b>${p.name}</b> <span class="sub">${TYPES[p.type].label}</span></div><div class="sub">${p.i===S.at?'here':o?'Lv '+o.lvl:'×'+fmt(p.rich*gRich())}</div></div>`;
@@ -2063,7 +2340,7 @@ function pGalaxy(pn){
 function pMore(pn){
   pn.appendChild(el('div','h',`Achievements (${achCount()}/${ACH.length}) · +3% production each`));
   const g=el('div','ach');for(const [id,n,d] of ACH)g.appendChild(el('div',S.ach[id]?'done':'',`<b>${S.ach[id]?'★ ':''}${n}</b><span>${d}</span>`));pn.appendChild(g);
-  pn.appendChild(el('div','h','Stats'));const st=el('div','card');live(st,e=>{const s=S.stats;setHTML(e,[['Play time',fmtTime(s.play)],['Planet taps',fmt(s.taps)],['Trips',fmt(s.trips)],['Asteroids smashed',fmt(s.rocks)],['Outposts built',fmt(s.built)],['Pirates destroyed',fmt(s.kills||0)],['Raids repelled',fmt(s.raidsWon||0)],['Father Ships',fmt(s.fathers||0)],['Critical hits',fmt(s.crits||0)],['Biggest crit',fmt(s.bestCrit||0)],['Colonists',fmt(Math.floor(S.colony.pop))],['Research earned',fmt(Math.floor(S.colony.rpTotal))],['Ore refined',fmt(S.colony.refined)],['Best kill combo',fmt(s.bestCombo||0)],['Faction missions',fmt(S.faction.stats.missions)],['Fleet raids won',fmt(S.faction.stats.raidsWon)+' / '+fmt(S.faction.stats.raids)],...RES.map(k=>['Total '+RINFO[k].n.toLowerCase(),fmt(s.earned[k]||0)])].map(([a,b])=>`<div class="stat"><span>${a}</span><b>${b}</b></div>`).join(''));});pn.appendChild(st);
+  pn.appendChild(el('div','h','Stats'));const st=el('div','card');live(st,e=>{const s=S.stats;setHTML(e,[['Play time',fmtTime(s.play)],['Planet taps',fmt(s.taps)],['Trips',fmt(s.trips)],['Asteroids smashed',fmt(s.rocks)],['Outposts built',fmt(s.built)],['Pirates destroyed',fmt(s.kills||0)],['Raids repelled',fmt(s.raidsWon||0)],['Father Ships',fmt(s.fathers||0)],['Critical hits',fmt(s.crits||0)],['Biggest crit',fmt(s.bestCrit||0)],['Colonists',fmt(Math.floor(S.colony.pop))],['Research earned',fmt(Math.floor(S.colony.rpTotal))],['Ore refined',fmt(S.colony.refined)],['Best kill combo',fmt(s.bestCombo||0)],['Faction missions',fmt(S.faction.stats.missions)],['Fleet raids won',fmt(S.faction.stats.raidsWon)+' / '+fmt(S.faction.stats.raids)],['Armadas repelled',fmt(s.armadasWon||0)+' / '+fmt(s.armadas||0)],['Moon Laser shots',fmt(s.moonShots||0)],['Battle Moon assists',fmt((S.moon&&S.moon.assists)||0)],...RES.map(k=>['Total '+RINFO[k].n.toLowerCase(),fmt(s.earned[k]||0)])].map(([a,b])=>`<div class="stat"><span>${a}</span><b>${b}</b></div>`).join(''));});pn.appendChild(st);
   pn.appendChild(el('div','h','Settings'));const sc=el('div','card');
   sc.appendChild(el('div','muted','Progress is saved automatically in this browser. Use export/import to move your save to another device.'));
   const bs=el('div','btns');
@@ -2085,7 +2362,8 @@ function exportBox(){save();const str='PH1:'+b64enc(JSON.stringify(S));modal(`<h
 function importBox(){modal(`<h2>Import save</h2><p>Paste an exported save string. This replaces your current progress.</p><textarea id="imp" placeholder="PH1:..."></textarea><p id="imperr" style="color:#ff8a8a"></p>`,[['Cancel','ghost'],['Import','',()=>{try{let v=$('#imp').value.trim();if(v.startsWith('PH1:'))v=v.slice(4);const o=sanitize(JSON.parse(b64dec(v)));S=o;setWorld();const snap=snapshot(),away=(Date.now()-S.clock)/1000;accrueOutposts(Date.now());save();R.tab='station';renderTabs();renderPanel();toast('Save imported','good');if(away>30){const gn=diffSnap(snap),rd=offlineRaids(away),cg=colonyOffline(away);setTimeout(()=>welcomeBack(away,gn,rd,cg),50);}return false;}catch(e){$('#imperr').textContent='That save string could not be read.';return true;}}]]);}
 function resetGame(){try{localStorage.removeItem(SAVE_KEY);}catch(_){}S=newState();setWorld();parts.length=0;rocks.length=0;R.sel=null;R.tab='station';renderTabs();renderPanel();save();intro();}
 function welcomeBack(secs,gains,raids,cg){
-  raids=raids||{};const rows=gains.filter(g=>g.any>0||g.full||raids[g.pi]);
+  raids=raids||{};try{armadaOfflineToast(secs);}catch(_){}
+  const rows=gains.filter(g=>g.any>0||g.full||raids[g.pi]);
   if(!rows.length&&cg){modal(`<h2>Welcome back, Commander</h2><p>You were away <b>${fmtTime(secs)}</b>. Your station idled, but the colony kept busy:</p>`+colonyLine(cg),[['Nice!','alt']]);return;}
   if(!rows.length){if(secs>120)toast('Welcome back! Build outposts to earn while you are away.','');return;}
   modal(`<h2>Welcome back, Commander</h2><p>You were away <b>${fmtTime(secs)}</b>. Your station idled (it only mines while the game is open), but your outposts kept working:</p>`+
@@ -2106,8 +2384,9 @@ function updTop(){const mining=!S.travel&&!document.hidden,rate=mining?stationRa
   setHTML($('#galchip'),`<span>Galaxy</span><b>${S.galaxy+1}</b><span>×${empire().toFixed(2)}</span>`);
   const tb=$('#travelbar');if(S.travel){const k=clamp((Date.now()-S.travel.start)/S.travel.dur,0,1);tb.style.display='block';setHTML(tb,`<div class="row" style="font-size:13px"><b class="grow">Traveling to ${P[S.travel.to].name}</b><span>${fmtTime(Math.ceil((S.travel.start+S.travel.dur-Date.now())/1000))}</span></div><div class="bar"><div style="width:${(k*100).toFixed(1)}%"></div></div>`);}else tb.style.display='none';
   const bn=$('#banner'),now=performance.now();
-  if(C.father){bn.style.display='block';bn.className='';bn.textContent=C.father.warn>0?'⚠ WARNING: FATHER SHIP INBOUND ⚠':C.father.end?(C.father.end.win?'FATHER SHIP DESTROYED!':'The Father Ship retreats…'):'BOSS: Father Ship — tap its parts!';}
-  else if(C.raid){bn.style.display='block';bn.className='';bn.textContent=(C.raid.hunters?'Bounty hunters':C.raid.mother?'Mothership raid':'Pirate raid')+' · '+(C.raid.queue.length+C.enemies.filter(e=>e.state!=='flee').length)+' hostiles · '+(C.raid.kills||0)+' kills';}
+  if(C.armadaWarn>0){bn.style.display='block';bn.className='armada';bn.textContent='⚠ ARMADA INCOMING · '+Math.ceil(C.armadaWarn)+'s ⚠';}
+  else if(C.father){bn.style.display='block';bn.className='';bn.textContent=C.father.warn>0?'⚠ WARNING: FATHER SHIP INBOUND ⚠':C.father.end?(C.father.end.win?'FATHER SHIP DESTROYED!':'The Father Ship retreats…'):'BOSS: Father Ship — tap its parts!';}
+  else if(C.raid){bn.style.display='block';bn.className=C.raid.armada?'armada':'';bn.textContent=(C.raid.armada?'ARMADA':C.raid.hunters?'Bounty hunters':C.raid.mother?'Mothership raid':'Pirate raid')+' · '+(C.raid.queue.length+C.enemies.filter(e=>e.state!=='flee').length)+' hostiles · '+(C.raid.kills||0)+' kills';}
   else if(overdriveOn()){bn.style.display='block';bn.className='flare';bn.textContent='Overdrive! Station output ×2 · '+Math.ceil((FA().od-Date.now())/1000)+'s';}
   else if(flareOn()){bn.style.display='block';bn.className='flare';bn.textContent='Solar flare! Station output ×3 · '+Math.ceil((flareUntil-now)/1000)+'s';}
   else if(now<R.showerUntil*1000||rocks.length){bn.style.display='block';bn.className='';bn.textContent=R.tab==='map'?'Asteroid shower! Open Station view to smash rocks':'Asteroid shower! Tap the rocks for bonus loot';}
@@ -2185,11 +2464,15 @@ setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').cla
   const gains=diffSnap(snap),rd=fresh?{}:offlineRaids(away),cg=fresh?null:colonyOffline(away);if(fresh)intro();else if(away>30)welcomeBack(away,gains,rd,cg);
   if(!fresh&&(S.lastVer||5)<7){setTimeout(()=>toast('Updated! New Colony tab: build Habitats, a Trade Station, Research Lab, Refinery and Shipyard on your station, and watch your colonists move in. The colony keeps working offline at half speed.','gold'),(S.lastVer||5)<6?5200:2200);}
   if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}
-  if(!fresh&&(S.lastVer||5)<10&&S.galaxy>=1)setTimeout(()=>toast('Updated! New Factions tab: join the Galactic Patrol, Pirate Syndicate, Trader Guild, Explorer League or Mega Corp for a bonus, an ability and a minigame mission. First join is free.','gold'),6500);S.lastVer=10;
+  if(!fresh&&(S.lastVer||5)<10&&S.galaxy>=1)setTimeout(()=>toast('Updated! New Factions tab: join the Galactic Patrol, Pirate Syndicate, Trader Guild, Explorer League or Mega Corp for a bonus, an ability and a minigame mission. First join is free.','gold'),6500);
+  if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);S.lastVer=11;
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
-mgInit();$('#abil').addEventListener('click',()=>{useAbility();});if(curFac()==='pirate')ensureTargets();
+mgInit();$('#abil').addEventListener('click',()=>{useAbility();});const mf=$('#moonfire');if(mf)mf.addEventListener('click',()=>{fireMoonLaser();});if(curFac()==='pirate')ensureTargets();
+if(S.moon)S.moon=sanitizeMoon(S.moon);
 updTop();requestAnimationFrame(frame);
-window.PH={F:{newFaction,sanitizeFaction,joinFaction,canJoin,switchCost,switchLeft,isSwitch,rankOf,fRank,ff,addRep,energy,spendEnergy,nextEnergyIn,useAbility,abilCd,abilLeft,abilReady,abilNeed,abilUpdate,startMission,misBlock,mgExit,mgClose,mgFrame,MG,MGK,FX,factionTap,patrolDmg,traderMult,traderVol,corpOut,corpDisc,overdriveOn,travelK,rockK,pirateRaidSize,pirateOffline,incomeU,explorerArrive,discMult,takeDeal,SHIPS,FAC,FIDS,RANK_REP,buyShip,upShip,repairShip,repairAll,repairAllCost,shipCost,shipUpCost,shipRepCost,shipStat,fleetPower,fleetCap,ensureTargets,tgFill,tgDef,tgDefense,tgCap,tgCount,raidLootFrac,raidHaul,raidTapDmg,raidBlock,smashRock,killEnemy,damageEnemy,arrive,setWorld},colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R,setFS,renderPanel,remapWorld,rocks,spawnRock,get W(){return W;},get H(){return H;}};
+window.PH={F:{newFaction,sanitizeFaction,joinFaction,canJoin,switchCost,switchLeft,isSwitch,rankOf,fRank,ff,addRep,energy,spendEnergy,nextEnergyIn,useAbility,abilCd,abilLeft,abilReady,abilNeed,abilUpdate,startMission,misBlock,mgExit,mgClose,mgFrame,MG,MGK,FX,factionTap,patrolDmg,traderMult,traderVol,corpOut,corpDisc,overdriveOn,travelK,rockK,pirateRaidSize,pirateOffline,incomeU,explorerArrive,discMult,takeDeal,SHIPS,FAC,FIDS,RANK_REP,buyShip,upShip,repairShip,repairAll,repairAllCost,shipCost,shipUpCost,shipRepCost,shipStat,fleetPower,fleetCap,ensureTargets,tgFill,tgDef,tgDefense,tgCap,tgCount,raidLootFrac,raidHaul,raidTapDmg,raidBlock,smashRock,killEnemy,damageEnemy,arrive,setWorld},colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,endRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R,setFS,renderPanel,remapWorld,rocks,spawnRock,get W(){return W;},get H(){return H;},
+  moonOwned,moonUnlocked,moonBuyCost,buyMoon,buyMoonUp,startMoonMove,moonLv,moonMaxHp,moonDps,moonLaserCost,moonLaserReady,fireMoonLaser,moonLaserDmg,moonLaserChargeTime,moonAtPlanet,moonDefending,moonMoveTime,moonPanelCard,
+  startArmadaWarning,startArmada,armadaSize,armadaMothers,armadaActive,spawnSalvageHaul,tapHaul,sanitizeMoon,newMoon,combatSum};
 })();
 </script>
 </body>
