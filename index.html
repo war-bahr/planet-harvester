@@ -219,13 +219,15 @@ const TYPES={
 };
 const GAL_SUFFIX=['Nebula','Expanse','Reach','Cluster','Spiral','Drift','Veil'];
 function genGalaxy(seed,g){
+  /* v12: +2 planets appended after the v11 nBase sequence so existing saves keep planet indices */
   const r=mulberry(hash(seed,g+1));
-  const n=6+Math.min(g,4);
+  const nBase=6+Math.min(g,4),nExtra=2,n=nBase+nExtra;
   const pts=[{x:.5,y:.52}];
   for(let i=1;i<n;i++){let best=null,bd=-1;for(let k=0;k<60;k++){const c={x:.08+r()*.84,y:.1+r()*.8};let md=9;for(const p of pts)md=Math.min(md,Math.hypot(p.x-c.x,p.y-c.y));if(md>bd){bd=md;best=c;}if(md>.26)break;}pts.push(best);}
   const pool=g>=1?['rocky','ice','gas','lava','exotic']:['rocky','ice','gas','lava'];
-  const types=['rocky'];for(let i=1;i<n;i++)types.push(pool[Math.floor(r()*pool.length)]);
-  if(!types.includes('ice'))types[1]='ice'; if(!types.includes('gas'))types[2]='gas'; if(g>=1&&!types.includes('exotic'))types[n-1]='exotic';
+  const types=['rocky'];for(let i=1;i<nBase;i++)types.push(pool[Math.floor(r()*pool.length)]);
+  if(!types.includes('ice'))types[1]='ice'; if(!types.includes('gas'))types[2]='gas'; if(g>=1&&!types.includes('exotic'))types[nBase-1]='exotic';
+  for(let i=nBase;i<n;i++)types.push(pool[Math.floor(r()*pool.length)]);
   const planets=[];
   for(let i=0;i<n;i++){
     const t=types[i],T=TYPES[t];const d=Math.hypot(pts[i].x-pts[0].x,pts[i].y-pts[0].y);
@@ -1495,8 +1497,8 @@ const pirateOffline=()=>1-.3*ff('pirate');
 const traderFeeK=()=>1-.4*ff('trader');
 const traderMult=()=>Math.min(.99,(1+.05*ff('trader'))*(1-tradeFee()));   // never >= 1, so round trips can't print money
 const traderVol=()=>1+.3*ff('trader');
-const travelK=()=>1+.3*ff('explorer');
-const rockK=()=>1+.3*ff('explorer');
+function travelK(){return (1+.3*ff('explorer'))*(1+(typeof museumPerk==='function'?museumPerk('travel'):0));}
+function rockK(){return (1+.3*ff('explorer'))*(1+(typeof museumPerk==='function'?museumPerk('rock'):0));}
 const corpOut=()=>1+.15*ff('corp');
 const corpDisc=()=>1-.12*ff('corp');
 function discCost(c){const k=corpDisc();if(k>=1)return c;const o={};for(const r in c)o[r]=c[r]*k;return cc(o);}
@@ -2213,6 +2215,311 @@ function moonOutpostRow(pi,c){if(!moonOwned())return;const here=S.moon.at===pi&&
 function armadaOfflineToast(secs){if(S.galaxy<1||!(secs>=600))return;if(Math.random()<Math.min(.35,.08*secs/3600))toast('Armada sensors swept the system while you were away — the fleet passed by.','gold');}
 
 console.log('v11 armada/moon module loaded');
+/* ================= v12: Faction Wars · borders · rep damage · museum · story · moon dock ================= */
+const WAR_EN_MAX=2,WAR_EN_T=45*60*1000,WAR_TICK=60*1000;
+const MUSEUM_SETS={
+  stellar:{name:'Stellar Fragments',col:'#9fb0ff',pieces:['sf1','sf2','sf3'],perk:'travel',perkTxt:'+4% travel speed',labels:['Solar Spark','Corona Sliver','Helio Lattice']},
+  void:{name:'Void Echoes',col:'#c46bff',pieces:['ve1','ve2','ve3'],perk:'rock',perkTxt:'+6% asteroid loot',labels:['Silent Ripple','Null Chime','Abyss Tone']},
+  cores:{name:'Ancient Cores',col:'#ffd36b',pieces:['ac1','ac2','ac3','ac4'],perk:'mine',perkTxt:'+3% station & outpost output',labels:['Prime Core','Lattice Core','Pulse Core','Aegis Core']},
+  shards:{name:'Singularity Shards',col:'#3ee0c0',pieces:['ss1','ss2','ss3','ss4','ss5'],perk:'mission',perkTxt:'+8% mission rewards',labels:['Shard α','Shard β','Shard γ','Shard δ','Shard ε']}
+};
+const STORY_BEATS={
+  join:{title:'Colors Raised',body:'You raise a faction banner for the first time. Reputation, ranks and a private war now travel with you.'},
+  waropen:{title:'Faction Wars',body:'Five banners contest this galaxy. Fronts shift over time — join a front-line battle to push yours forward.'},
+  armada1:{title:'Armada Warning',body:'Sensors scream. A Massive Fleet Raid is inbound — reposition the Battle Moon and charge every laser.'},
+  bmoon:{title:'Battle Moon Online',body:'A fortified moonlet locks into your command net. Park it on threatened worlds — or dock it at the colony for industry.'},
+  front1:{title:'Front-Line',body:'You dive into a live skirmish for your faction. Win and the front advances; lose and it buckles.'},
+  museum1:{title:'Museum Set Complete',body:'The Relic Museum vault hums — a full set unlocks a permanent perk for your empire.'},
+  galjump:{title:'New Sky',body:'The jump gate folds. A fresh galaxy unfurls — richer worlds, new fronts, same colors on your hull.'},
+  father:{title:'Fatherslayer',body:'The juggernaut breaks apart. The path to the next galaxy is open.'},
+  moondock:{title:'Moon at Dock',body:'The Battle Moon kisses the colony ring. Habitats run a little hotter while it rests.'},
+  hostile:{title:'Marked Hostile',body:'Another faction has marked you hostile. Standing can recover — joining them clears the flag immediately.'}
+};
+
+function newWar(){const fronts={};for(const id of FIDS)fronts[id]=20;return {fronts,lastTick:Date.now(),energy:WAR_EN_MAX,energyT:Date.now(),fights:0,wins:0,toastAt:0,log:[]};}
+function sanitizeWar(o){const d=newWar();if(!o||typeof o!=='object')return d;const w={...d,...o};w.fronts={};for(const id of FIDS)w.fronts[id]=clamp(Number.isFinite(+((o.fronts||{})[id]))?+o.fronts[id]:20,0,100);
+  w.lastTick=Number.isFinite(+o.lastTick)?+o.lastTick:Date.now();w.energy=clamp(Number.isFinite(+o.energy)?+o.energy:WAR_EN_MAX,0,WAR_EN_MAX);
+  w.energyT=Number.isFinite(+o.energyT)?+o.energyT:Date.now();w.fights=Math.max(0,Math.floor(+o.fights||0));w.wins=Math.max(0,Math.floor(+o.wins||0));
+  w.toastAt=Number.isFinite(+o.toastAt)?+o.toastAt:0;w.log=Array.isArray(o.log)?o.log.filter(x=>x&&x.msg).slice(-12).map(x=>({t:+x.t||Date.now(),msg:String(x.msg).slice(0,120),kind:String(x.kind||'')})):[];return w;}
+function newMuseum(){return {pieces:{},perks:{}};}
+function sanitizeMuseum(o){const d=newMuseum();if(!o||typeof o!=='object')return d;const m={pieces:{},perks:{}};
+  for(const sid in MUSEUM_SETS){for(const p of MUSEUM_SETS[sid].pieces)if((o.pieces||{})[p])m.pieces[p]=1;if((o.perks||{})[sid])m.perks[sid]=1;}
+  return m;}
+function newStory(){return {seen:{},log:[]};}
+function sanitizeStory(o){const d=newStory();if(!o||typeof o!=='object')return d;const s={seen:{},log:[]};
+  for(const k in (o.seen||{}))if(STORY_BEATS[k])s.seen[k]=true;
+  if(Array.isArray(o.log))s.log=o.log.filter(x=>x&&STORY_BEATS[x.id]).slice(-40).map(x=>({id:x.id,t:+x.t||Date.now()}));return s;}
+
+/* ---- install save fields (wrap sanitize / newState pieces via post-load + monkeypatch) ---- */
+(function(){
+  const _ns=newState;newState=function(){const s=_ns();s.lastVer=12;s.war=newWar();s.museum=newMuseum();s.story=newStory();return s;};
+  const _san=sanitize;sanitize=function(o){const s=_san(o);s.war=sanitizeWar(o&&o.war);s.museum=sanitizeMuseum(o&&o.museum);s.story=sanitizeStory(o&&o.story);
+    if(s.faction){s.faction.hostile=s.faction.hostile&&typeof s.faction.hostile==='object'?s.faction.hostile:{};for(const id of FIDS)s.faction.hostile[id]=!!((o.faction&&o.faction.hostile||{})[id]);}
+    if(s.moon&&s.moon.owned){s.moon.docked=!!(o.moon&&o.moon.docked);if(s.moon.docked)s.moon.travel=null;}
+    return s;};
+  const _nm=newMoon;newMoon=function(){const m=_nm();m.docked=false;return m;};
+  const _sm=sanitizeMoon;sanitizeMoon=function(o){const m=_sm(o);if(!m)return null;m.docked=!!(o&&o.docked);if(m.docked)m.travel=null;return m;};
+  const _sf=sanitizeFaction;sanitizeFaction=function(o){const f=_sf(o);f.hostile={};for(const id of FIDS)f.hostile[id]=!!((o&&o.hostile||{})[id]);return f;};
+  const _nf=newFaction;newFaction=function(){const f=_nf();f.hostile={patrol:false,pirate:false,trader:false,explorer:false,corp:false};return f;};
+})();
+
+const war=()=>S.war||(S.war=newWar());
+const museum=()=>S.museum||(S.museum=newMuseum());
+const story=()=>S.story||(S.story=newStory());
+const warUnlocked=()=>S.galaxy>=1;
+
+/* ---- museum perks ---- */
+function museumSetDone(sid){const M=MUSEUM_SETS[sid],m=museum();return M.pieces.every(p=>m.pieces[p]);}
+function museumPerk(kind){const m=museum();let v=0;
+  if(kind==='travel'&&m.perks.stellar)v+=.04;if(kind==='rock'&&m.perks.void)v+=.06;if(kind==='mine'&&m.perks.cores)v+=.03;if(kind==='mission'&&m.perks.shards)v+=.08;
+  return v;}
+function grantMuseumPiece(pid,src){const m=museum();if(m.pieces[pid])return false;m.pieces[pid]=1;let setId=null;for(const sid in MUSEUM_SETS)if(MUSEUM_SETS[sid].pieces.includes(pid))setId=sid;
+  toast('Relic secured'+(src?': '+src:'')+(setId?' · '+MUSEUM_SETS[setId].name:''),'gold');sfx('crit');
+  if(setId&&museumSetDone(setId)&&!m.perks[setId]){m.perks[setId]=1;toast('Museum set complete: '+MUSEUM_SETS[setId].name+' — '+MUSEUM_SETS[setId].perkTxt,'gold');storyBeat('museum1');}
+  save();return true;}
+function rollMuseumDrop(preferExplorer){const missing=[];for(const sid in MUSEUM_SETS){const M=MUSEUM_SETS[sid];for(let i=0;i<M.pieces.length;i++){if(!museum().pieces[M.pieces[i]])missing.push({sid,pid:M.pieces[i],i});}}
+  if(!missing.length)return null;if(preferExplorer){const incomplete=missing.filter(x=>!museumSetDone(x.sid));const pool=incomplete.length?incomplete:missing;return pool[Math.floor(Math.random()*pool.length)].pid;}
+  return missing[Math.floor(Math.random()*missing.length)].pid;}
+function tryMuseumDrop(chance,label){if(Math.random()>=chance)return false;const pid=rollMuseumDrop(curFac()==='explorer');if(!pid)return false;return grantMuseumPiece(pid,label);}
+
+/* museum mine/mission hooks (travel/rock baked into travelK/rockK in js5) */
+(function(){
+  const _sr=stationRate;stationRate=function(pi){return _sr(pi)*(1+museumPerk('mine'));};
+  const _or=outRate;outRate=function(pi){return _or(pi)*(1+museumPerk('mine'));};
+  const _mgr=mgReward;mgReward=function(r){const k=1+museumPerk('mission');if(r&&r.secs)r={...r,secs:r.secs*k,salvage:r.salvage?r.salvage*k:r.salvage};return _mgr(r);};
+})();
+
+/* ---- reputation damage ---- */
+function hurtRep(id,n){if(!id||!FIDS.includes(id)||!(n>0)||!S.faction)return;const f=S.faction;f.hostile=f.hostile||{};const before=f.rep[id]||0;f.rep[id]=safe(Math.max(0,before-n));
+  if(before-n<0||before<=0){if(!f.hostile[id]){f.hostile[id]=true;storyBeat('hostile');}}
+  if(R.tab==='factions')renderPanel();}
+function isHostile(id){return !!(S.faction&&S.faction.hostile&&S.faction.hostile[id]);}
+(function(){
+  const _ar=addRep;addRep=function(id,n){const f=S.faction;const before=f&&f.rep?f.rep[id]||0:0;_ar(id,n);
+    if(f&&f.hostile&&f.hostile[id]&&(f.rep[id]||0)>=40){f.hostile[id]=false;toast(FAC[id].name+' standing restored','good');}};
+  const _jf=joinFaction;joinFaction=function(id){const ok=_jf(id);if(ok){if(S.faction.hostile)S.faction.hostile[id]=false;storyBeat('join');if(warUnlocked()){ensureWar();storyBeat('waropen');}}return ok;};
+})();
+
+/* wire hurtRep into existing actions */
+(function(){
+  const _ua=useAbility;useAbility=function(){const id=curFac();const ok=_ua();if(!ok)return false;
+    if(id==='patrol')hurtRep('pirate',6);if(id==='pirate'){hurtRep('trader',4);hurtRep('patrol',2);}if(id==='trader'){/* smuggling is mission */}return true;};
+  const _pb=patrolBounty;patrolBounty=function(e){_pb(e);hurtRep('pirate',1);};
+  const _ea=explorerArrive;explorerArrive=function(){const before=S.faction&&S.faction.disc&&S.faction.disc[S.galaxy]?Object.keys(S.faction.disc[S.galaxy]).length:0;_ea();
+    const d=S.faction&&S.faction.disc&&S.faction.disc[S.galaxy];if(!d)return;const after=Object.keys(d).length;
+    if(after>before){const owner=planetOwner(S.at);if(owner&&owner!=='explorer')hurtRep(owner,10);}};
+  const _dt=doTrade;doTrade=function(from,to,frac){const was=curFac();const tv0=CO().tv;_dt(from,to,frac);if(was==='corp'){const used=Math.max(0,tv0-(CO().tv||0));if(used>0&&tvMax()>0)hurtRep('trader',3*Math.min(1,used/tvMax()));}}
+  const _srk=smashRock;smashRock=function(i){_srk(i);if(curFac()!=='explorer')tryMuseumDrop(.02,'asteroid find');};
+})();
+
+/* anomaly dive → museum pieces */
+(function(){
+  const A=MGK.anomaly;if(!A)return;
+  const _sp=A.spawnRelic.bind(A);A.spawnRelic=function(s){_sp(s);const q=s.relics[s.relics.length-1];if(q)q.pid=rollMuseumDrop(true);};
+  const _st=A.step.bind(A);A.step=function(s,dt){const before=s.got;_st(s,dt);if(s.got>before){/* piece granted in finish for simplicity */}};
+  const _fin=A.finish.bind(A);A.finish=function(s){const got=s.got|0;_fin(s);if(got>0&&curFac()==='explorer'){for(let i=0;i<got;i++){const pid=rollMuseumDrop(true);if(pid)grantMuseumPiece(pid,'Anomaly Dive');else{addSplit(incomeU()*6,shotWeights());}}}};
+})();
+
+/* salvage haul museum drip */
+(function(){
+  const _th=tapHaul;tapHaul=function(x,y){const ok=_th(x,y);if(ok){tryMuseumDrop(.04,'wreck salvage');}return ok;};
+})();
+
+/* pirate raid hurt */
+(function(){
+  const R0=MGK.raid;if(!R0||!R0.finish)return;const _f=R0.finish.bind(R0);R0.finish=function(s,why){_f(s,why);const win=why==='win';hurtRep('patrol',win?12:6);hurtRep('trader',win?6:3);};
+})();
+
+/* smuggle hurt patrol */
+(function(){
+  const M=MGK.smuggle;if(!M)return;const _f=M.finish.bind(M);M.finish=function(s){const ok=s.me.hull>0;_f(s);if(ok)hurtRep('patrol',5);};
+})();
+
+/* duel hurt pirate */
+(function(){
+  const M=MGK.duel;if(!M)return;const _f=M.finish.bind(M);M.finish=function(s){const win=!!s.win;_f(s);if(win)hurtRep('pirate',8);};
+})();
+
+/* ---- Faction War ---- */
+function ensureWar(){if(!S.war)S.war=newWar();return S.war;}
+function warEnergy(){const w=ensureWar(),now=Date.now();if(w.energy>=WAR_EN_MAX){w.energyT=now;return WAR_EN_MAX;}const e=Math.min(WAR_EN_MAX,w.energy+(now-w.energyT)/WAR_EN_T);if(e>=WAR_EN_MAX){w.energy=WAR_EN_MAX;w.energyT=now;}return e;}
+function spendWarEnergy(){const e=warEnergy();if(e<1)return false;const w=ensureWar();w.energy=e-1;w.energyT=Date.now();return true;}
+function nextWarEnergyIn(){const e=warEnergy();return e>=WAR_EN_MAX?0:(1-(e%1))*WAR_EN_T/1000;}
+function warBias(pi,fid){const h=hash(S.seed^0xA77F5,((S.galaxy+1)*17+pi)*31+FIDS.indexOf(fid)+3);return ((h%1601)/1601)*16-8;}
+function planetOwner(pi){if(!warUnlocked()||pi===0||!P[pi])return null;const w=ensureWar();let best=null,bs=-1e9;for(const id of FIDS){const sc=(w.fronts[id]||0)+warBias(pi,id);if(sc>bs){bs=sc;best=id;}}return best;}
+function warLog(msg,kind){const w=ensureWar();w.log.push({t:Date.now(),msg,kind:kind||''});if(w.log.length>12)w.log.shift();}
+function pushFront(id,amt){const w=ensureWar();w.fronts[id]=clamp((w.fronts[id]||0)+amt,0,100);}
+function applyWarWin(id){pushFront(id,3.5+.5*Math.max(1,rankOf(id)));for(const o of FIDS)if(o!==id)pushFront(o,-.7);warLog(FAC[id].name+' pushed the front','win');}
+function applyWarLoss(id,opp){pushFront(id,-2);if(opp)pushFront(opp,1.5);warLog(FAC[id].name+' lost ground'+(opp?' to '+FAC[opp].name:''),'loss');}
+function warTick(){if(!warUnlocked())return;const w=ensureWar(),now=Date.now();let steps=Math.floor((now-w.lastTick)/WAR_TICK);if(steps<=0)return;steps=Math.min(steps,120);const r=mulberry(hash(S.seed,7700+S.galaxy));
+  for(let s=0;s<steps;s++){for(const id of FIDS){const mom=((hash(S.seed,8800+S.galaxy*9+FIDS.indexOf(id))%1000)/1000-.5)*.6;const target=20+mom*25;const cur=w.fronts[id];const step=(target-cur)*.04+(r()-.5)*.45;w.fronts[id]=clamp(cur+step,0,100);}}
+  w.lastTick+=steps*WAR_TICK;if(now-w.toastAt>180000){let big=null,bd=0;for(const id of FIDS){/* approximate swing vs 20 */}
+    const lead=FIDS.slice().sort((a,b)=>w.fronts[b]-w.fronts[a])[0];if(w.fronts[lead]>=28){toast('War update: '+FAC[lead].name+' presses the '+['outer belt','trade lanes','driftward rim','coreward line','nebula front'][FIDS.indexOf(lead)],'gold');w.toastAt=now;warLog('Front report: '+FAC[lead].name+' leading','tick');}}}
+
+function warBlock(){if(!warUnlocked())return 'Reach Galaxy 2';if(!curFac())return 'Join a faction';if(inCombat())return 'Finish the battle first';if(MG.on)return 'Mission running';if(S.travel)return 'Wait until you arrive';if(warEnergy()<1)return 'No war energy';return '';}
+function startFrontline(){const b=warBlock();if(b){toast(b,'');return false;}if(!spendWarEnergy())return false;const id=curFac();
+  /* pick opposing faction = strongest other front */
+  const w=ensureWar();const opp=FIDS.filter(f=>f!==id).sort((a,b)=>w.fronts[b]-w.fronts[a])[0];
+  MG.kind='frontline';MG.fid=id;MG.opp=opp;MG.t=0;MG.res=null;MG.parts.length=0;MG.floats.length=0;MG.shake=0;MG.ptr=null;MG.pause=false;MG.on=true;
+  const m=mgEl();m.classList.remove('hidden');$('#mgres').classList.add('hidden');$('#mgres').innerHTML='';mgSize();
+  MG.st=MGK.frontline.init();w.fights++;storyBeat('front1');abilUpdate();
+  setHTML($('#mgt'),`<svg viewBox="0 0 24 24" style="stroke:${FAC[id].col}">${FAC[id].svg}</svg><span>Front-Line Battle</span>`);
+  try{history.pushState({phmg:1},'');}catch(_){}save();return true;}
+
+/* Front-line minigame: Ace-Duel style multi-ship skirmish */
+MGK.frontline={title:'Front-Line Battle',stick:true,
+  init(){const W=MG.W,H=MG.H,m=Math.min(W,H),d=mgDiff(MG.fid||'patrol'),id=MG.fid,opp=MG.opp||'pirate';
+    const me={x:W*.5,y:H*.78,a:-Math.PI/2,v:m*.3,hp:1,cd:0,bcd:0,burst:0,inv:0};
+    const allies=[];for(let i=0;i<2+(d>1.3?1:0);i++)allies.push({x:W*(.28+.22*i),y:H*.82,a:-Math.PI/2,v:m*.28,hp:1,cd:.5+i*.2,fid:id});
+    const foes=[];const nF=4+Math.min(2,Math.floor(d));for(let i=0;i<nF;i++)foes.push({x:W*(.18+.16*i),y:H*(.16+.08*(i%2)),a:Math.PI/2,v:m*.36,hp:55*d,max:55*d,cd:1+Math.random(),mode:'attack',mt:2,flash:0,jink:1,fid:opp});
+    return {d,m,T:75,me,allies,foes,shots:[],kills:0,end:0,opp};},
+  resize(oW,oH){const s=MG.st;for(const o of [s.me,...s.allies,...s.foes,...s.shots]){o.x*=MG.W/oW;o.y*=MG.H/oH;}s.m=Math.min(MG.W,MG.H);},
+  tap(s){if(s.me.bcd<=0){s.me.burst=3;s.me.bcd=1.1;}},
+  fire(s,o,own,spd,err,dmg){const a=o.a+(Math.random()-.5)*err;s.shots.push({x:o.x+Math.cos(o.a)*14,y:o.y+Math.sin(o.a)*14,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:1.5,own,dmg});},
+  step(s,dt){const W=MG.W,H=MG.H,m=s.m,me=s.me,d=s.d,top=64;if(s.end){s.end-=dt;if(s.end<=0)this.finish(s);return;}
+    const st=mgStick();if(st.m>0){const ta=Math.atan2(st.y,st.x);me.a+=clamp(angD(me.a,ta),-4.2*dt,4.2*dt);}me.v=m*(.3+.38*st.m);
+    me.x=clamp(me.x+Math.cos(me.a)*me.v*dt,16,W-16);me.y=clamp(me.y+Math.sin(me.a)*me.v*dt,top,H-16);
+    me.cd-=dt;me.bcd-=dt;me.inv=Math.max(0,me.inv-dt);
+    const liveF=()=>s.foes.filter(f=>f.hp>0);let nearest=null,nd=1e9;for(const f of liveF()){const dd=Math.hypot(f.x-me.x,f.y-me.y);if(dd<nd){nd=dd;nearest=f;}}
+    if(me.burst>0&&me.cd<=0){me.burst--;me.cd=.07;this.fire(s,me,'p',m*1.5,.12,7);sfx('zap');}
+    else if(nearest&&me.cd<=0&&Math.abs(angD(me.a,Math.atan2(nearest.y-me.y,nearest.x-me.x)))<.32&&nd<m*.9){me.cd=.15;this.fire(s,me,'p',m*1.5,.07,6);sfx('zap');}
+    /* allies */
+    for(const a of s.allies){if(a.hp<=0)continue;let tgt=null,td=1e9;for(const f of liveF()){const dd=Math.hypot(f.x-a.x,f.y-a.y);if(dd<td){td=dd;tgt=f;}}
+      if(tgt){const ta=Math.atan2(tgt.y-a.y,tgt.x-a.x);a.a+=clamp(angD(a.a,ta),-2.4*dt,2.4*dt);a.v=m*.32;a.cd-=dt;if(a.cd<=0&&td<m*.75&&Math.abs(angD(a.a,ta))<.4){a.cd=.28;this.fire(s,a,'al',m*1.2,.15,4);}}
+      else{a.v=m*.15;}a.x=clamp(a.x+Math.cos(a.a)*a.v*dt,14,W-14);a.y=clamp(a.y+Math.sin(a.a)*a.v*dt,top,H-14);}
+    /* foes AI */
+    for(const A of s.foes){if(A.hp<=0)continue;A.mt-=dt;A.flash=Math.max(0,A.flash-dt);if(A.mt<=0){A.mode=A.mode==='attack'?'evade':'attack';A.mt=A.mode==='attack'?2+Math.random():.8+Math.random()*.6;A.jink=Math.random()<.5?-1:1;}
+      const lead=Math.hypot(me.x-A.x,me.y-A.y)/(m*1.0);let ta=Math.atan2((me.y+Math.sin(me.a)*me.v*lead)-A.y,(me.x+Math.cos(me.a)*me.v*lead)-A.x);
+      if(A.mode==='evade')ta=Math.atan2(A.y-me.y,A.x-me.x)+A.jink*1.1;A.a+=clamp(angD(A.a,ta),-2.6*d*dt,2.6*d*dt);A.v=m*.36*(A.mode==='evade'?1.12:1);
+      A.x=clamp(A.x+Math.cos(A.a)*A.v*dt,14,W-14);A.y=clamp(A.y+Math.sin(A.a)*A.v*dt,top,H-14);
+      A.cd-=dt;const toMe=Math.atan2(me.y-A.y,me.x-A.x);if(A.cd<=0&&A.mode==='attack'&&Math.abs(angD(A.a,toMe))<.28){A.cd=.6/d;this.fire(s,A,'e',m*.9,.35/d,6*(.8+.2*d));}}
+    const rE=clamp(m*.048,14,22),rM=rE*.85;
+    for(let i=s.shots.length-1;i>=0;i--){const b=s.shots[i];b.life-=dt;b.x+=b.vx*dt;b.y+=b.vy*dt;let hit=false;
+      if(b.own==='p'||b.own==='al'){for(const A of s.foes){if(A.hp<=0)continue;if(Math.hypot(b.x-A.x,b.y-A.y)<rE){hit=true;let dm=b.dmg;const cr=rollCrit(true);if(cr){dm*=2;mgFloat(A.x,A.y-18,'CRIT','#ffb347');}A.hp-=dm;A.flash=.1;mgPart(b.x,b.y,5,'#ffd36b');if(A.hp<=0){s.kills++;mgPart(A.x,A.y,40,'#ffb070',220);sfx('boom');}break;}}}
+      else if(b.own==='e'){if(me.inv<=0&&Math.hypot(b.x-me.x,b.y-me.y)<rM){hit=true;me.hp-=b.dmg/100;me.inv=.12;MG.shake=5;mgPart(b.x,b.y,8,'#ff7a3a');sfx('hit');vib(12);}
+        for(const a of s.allies){if(a.hp<=0)continue;if(Math.hypot(b.x-a.x,b.y-a.y)<rM){hit=true;a.hp-=b.dmg/90;mgPart(b.x,b.y,6,'#ff7a3a');if(a.hp<=0){mgPart(a.x,a.y,24,'#9fe6ff',160);sfx('boom');}break;}}}
+      if(hit||b.life<=0||b.x<-20||b.x>W+20||b.y<-20||b.y>H+20)s.shots.splice(i,1);}
+    if(!liveF().length&&!s.end){s.win=true;s.end=1.2;MG.shake=10;sfx('boom');vib([30,40,60]);}
+    else if(me.hp<=0&&!s.end){s.win=false;s.end=1.1;mgPart(me.x,me.y,50,'#9fe6ff',220);MG.shake=10;sfx('boom');}
+    else if(MG.t>=s.T&&!s.end){s.win=liveF().length<=Math.floor(s.foes.length/3);s.end=.2;}},
+  finish(s){const id=MG.fid,opp=s.opp||MG.opp;const hp=clamp(s.me.hp,0,1);
+    if(s.win){applyWarWin(id);ensureWar().wins++;hurtRep(opp,8);mgEnd('Front secured!',[`Kills ${s.kills} · hull ${Math.round(hp*100)}% · ${FAC[id].name} advances`],{secs:45*(.75+.25*hp),salvage:12*eScale(),rep:18},true);}
+    else{applyWarLoss(id,opp);mgEnd('Forced back',[`Kills ${s.kills} · the front buckles`],{secs:12,rep:5},false);}
+    if(R.tab==='factions'||R.tab==='map')renderPanel();},
+  hud(s){return `<b>${fmtClock(s.T-MG.t)}</b> · Hostiles ${s.foes.filter(f=>f.hp>0).length}/${s.foes.length} · Kills ${s.kills}`;},
+  draw(x,s,dt,t){const W=MG.W,H=MG.H,m=s.m,id=MG.fid,opp=s.opp;mgBg(x,W,H,dt,.03,FAC[id]?210:220);const r=clamp(m*.048,14,22);
+    x.globalCompositeOperation='lighter';for(const b of s.shots)mgGlow(x,b.own==='e'?'#ff7a3a':'#5fd0ff',b.x,b.y,7,1);x.globalCompositeOperation='source-over';
+    for(const b of s.shots){x.strokeStyle=b.own==='e'?'#ffd0a8':'#dff6ff';x.lineWidth=2;x.beginPath();x.moveTo(b.x,b.y);x.lineTo(b.x-b.vx*.02,b.y-b.vy*.02);x.stroke();}
+    for(const A of s.foes){if(A.hp<=0&&!(s.end>.8))continue;x.save();x.translate(A.x,A.y);x.rotate(A.a);const sp=pirSpr('raider',r);x.drawImage(sp,-sp.cw/2,-sp.ch/2,sp.cw,sp.ch);if(A.flash>0){x.globalAlpha=.7;const w=pirSpr('raider',r,true);x.drawImage(w,-w.cw/2,-w.ch/2,w.cw,w.ch);x.globalAlpha=1;}x.restore();
+      if(A.hp>0)mgBar(x,A.x-r,A.y-r-10,r*2,3,A.hp/A.max,FAC[opp]?FAC[opp].col:'#ff5a6a');}
+    for(const a of s.allies){if(a.hp<=0)continue;x.save();x.translate(a.x,a.y);x.rotate(a.a);const sp=shipSpr('fighter',r*.75,FAC[id].acc);x.drawImage(sp,-sp.cw/2,-sp.ch/2,sp.cw,sp.ch);x.restore();}
+    const me=s.me;if(me.hp>0){x.save();x.translate(me.x,me.y);x.rotate(me.a);x.globalCompositeOperation='lighter';mgGlow(x,'#5fd0ff',-r*.9,0,r*.55*(1+.4*Math.sin(t*30)),.9,true);x.globalCompositeOperation='source-over';const sp=shipSpr('fighter',r*.9,'#ffd36b');x.drawImage(sp,-sp.cw/2,-sp.ch/2,sp.cw,sp.ch);x.restore();}
+    mgBar(x,12,H-24,Math.min(160,W*.4),8,me.hp,me.hp>.35?'#3ee0a0':'#ff5a5a','HULL');
+    if(MG.t<3){x.font='bold 14px system-ui,sans-serif';x.textAlign='center';x.fillStyle=`rgba(255,255,255,${.7+.3*Math.sin(t*4)})`;x.fillText('Front-line: drag to steer · tap for burst',W/2,H*.55);x.fillText('Allies fight beside you',W/2,H*.55+20);}}};
+
+/* ---- story beats (toast + log; no blocking modal) ---- */
+function storyBeat(id){if(!STORY_BEATS[id])return;const st=story();if(st.seen[id])return;st.seen[id]=true;st.log.push({id,t:Date.now()});if(st.log.length>40)st.log.shift();
+  const B=STORY_BEATS[id];toast('✉ '+B.title+' — '+B.body.slice(0,72)+(B.body.length>72?'…':''),'gold');save();}
+function scheduleStory(){}
+
+/* wrap armada / moon / jump / father for story */
+(function(){
+  const _saw=startArmadaWarning;startArmadaWarning=function(){_saw();storyBeat('armada1');maybeMoonUndockPrompt();};
+  const _bm=buyMoon;buyMoon=function(){const ok=_bm();if(ok)storyBeat('bmoon');return ok;};
+  const _jg=jumpGalaxy;jumpGalaxy=function(){_jg();storyBeat('galjump');if(warUnlocked()){S.war=newWar();ensureWar();}};
+  const _fw=fatherWin;fatherWin=function(){_fw();storyBeat('father');};
+})();
+
+/* ---- Battle Moon dock ---- */
+
+function moonDocked(){return moonOwned()&&!!S.moon.docked;}
+function canDockMoon(){return moonOwned()&&!S.moon.travel&&CO().on&&!S.moon.docked;}
+function dockMoon(){if(!canDockMoon()){toast(!CO().on?'Found the colony first':'Cannot dock now','');return false;}
+  S.moon.docked=true;S.moon.travel=null;S.moon.at=S.at;toast('Battle Moon docked at the colony (+8% colony production)','gold');sfx('coin');storyBeat('moondock');save();renderPanel();return true;}
+function undockMoon(toPi){if(!moonOwned()||!S.moon.docked)return false;S.moon.docked=false;const dest=toPi!=null?toPi:S.at;
+  if(dest===S.at||dest===S.moon.at){S.moon.at=dest;toast('Battle Moon undocked at '+P[dest].name,'good');save();renderPanel();return true;}
+  S.moon.at=S.at;return startMoonMove(dest);}
+function maybeMoonUndockPrompt(){if(!moonDocked()||!C.armadaWarn)return;
+  const pi=S.at;toast('Armada Warning — Battle Moon is docked at the colony','gold');
+  if(R.tab==='station'||R.tab==='map'||R.tab==='colony')renderPanel();}
+function moonDockBoost(){return moonDocked()?1.08:1;}
+(function(){
+  const _cs=colonyStep;colonyStep=function(dt,rate,oreFloor){return _cs(dt,rate*moonDockBoost(),oreFloor);};
+  const _md=moonDefending;moonDefending=function(){if(moonDocked())return false;return _md();};
+  const _map=moonAtPlanet;moonAtPlanet=function(){if(moonDocked())return -1;return _map();};
+  const _smm=startMoonMove;startMoonMove=function(to){if(moonDocked()){S.moon.docked=false;}return _smm(to);};
+  const _dmm=drawMoonMap;drawMoonMap=function(t){if(moonDocked()){const p=mapPos(P[0]);ctx.save();ctx.translate(p.x+16,p.y+12);blit(moonSpr(6),0,0);ctx.fillStyle='#9fe6ff';ctx.font='bold 8px system-ui,sans-serif';ctx.textAlign='center';ctx.fillText('DOCK',0,12);ctx.restore();return;}return _dmm(t);};
+  const _dbm=drawBattleMoon;drawBattleMoon=function(t){if(moonDocked())return;return _dbm(t);};
+})();
+
+/* ---- Map borders ---- */
+function drawFactionBorders(t){if(!warUnlocked()||!P||P.length<2)return;warTick();
+  /* soft territory discs */
+  for(const p of P){if(p.i===0)continue;const own=planetOwner(p.i);if(!own)continue;const q=mapPos(p),r=mapR(p)+18;const col=FAC[own].col;
+    const g=ctx.createRadialGradient(q.x,q.y,r*.2,q.x,q.y,r);g.addColorStop(0,col+'33');g.addColorStop(1,col+'00');ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,TAU);ctx.fill();
+    /* banner pip */
+    ctx.fillStyle=col;ctx.beginPath();ctx.moveTo(q.x+r*.55,q.y-r*.9);ctx.lineTo(q.x+r*.55+7,q.y-r*.9+3);ctx.lineTo(q.x+r*.55,q.y-r*.9+6);ctx.closePath();ctx.fill();
+    ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(q.x+r*.55,q.y-r*.9);ctx.lineTo(q.x+r*.55,q.y-r*.9+11);ctx.stroke();}
+  /* border lines between different owners */
+  ctx.lineWidth=1.2;ctx.setLineDash([5,4]);
+  for(let i=1;i<P.length;i++)for(let j=i+1;j<P.length;j++){const a=planetOwner(i),b=planetOwner(j);if(!a||!b||a===b)continue;const pa=mapPos(P[i]),pb=mapPos(P[j]);if(Math.hypot(pa.x-pb.x,pa.y-pb.y)>Math.min(W,H)*.42)continue;
+    ctx.strokeStyle='rgba(200,210,255,.28)';ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke();}
+  ctx.setLineDash([]);
+  /* hub contested ring */
+  const h=mapPos(P[0]),hr=mapR(P[0])+8;ctx.strokeStyle='rgba(255,211,107,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.arc(h.x,h.y,hr,0,TAU);ctx.stroke();ctx.setLineDash([]);
+}
+(function(){const _dm=drawMap;drawMap=function(t){drawFactionBorders(t);_dm(t);};})();
+
+/* ---- UI helpers ---- */
+function warFrontHTML(){const w=ensureWar();warTick();const en=warEnergy();
+  const bars=FIDS.map(id=>{const f=w.fronts[id]||0;return `<div class="row" style="margin-top:3px;font-size:11px"><span style="width:72px;color:${FAC[id].col}">${FAC[id].name.split(' ')[0]}</span><div class="bar grow"><div style="width:${f}%;background:${FAC[id].col}"></div></div><span style="width:28px;text-align:right">${Math.round(f)}</span></div>`;}).join('');
+  const lead=FIDS.slice().sort((a,b)=>w.fronts[b]-w.fronts[a])[0];
+  return `<div class="title">Faction War <span class="lv" style="background:#5a3a8a">LIVE</span></div><div class="sub">${FAC[lead].name} leads the fronts · war energy <span class="pips">${[0,1].map(i=>`<i class="${en>=i+1?'on':''}"></i>`).join('')}</span>${en<WAR_EN_MAX?' · +1 in '+fmtTime(nextWarEnergyIn()):''}</div>${bars}`;}
+function warBoardCard(pn){if(!warUnlocked())return;ensureWar();const c=el('div','card hl');live(c,e=>setHTML(e,warFrontHTML()));pn.appendChild(c);
+  const bs=el('div','btns');bs.appendChild(btn('alt',()=>{const b=warBlock();return b||'Join Front-Line Battle';},null,()=>startFrontline(),()=>!warBlock()));c.appendChild(bs);
+  const w=ensureWar();if(w.log.length){const lg=el('div','muted');lg.style.marginTop='6px';lg.innerHTML=w.log.slice(-3).reverse().map(l=>`· ${l.msg}`).join('<br>');c.appendChild(lg);}}
+function museumCard(pn){const m=museum();const c=el('div','card');c.innerHTML=`<div class="title">Relic Museum</div><div class="sub">Explorer Anomaly Dive fills sets. Rare finds elsewhere keep the vault alive if you switch factions.</div>`;
+  for(const sid in MUSEUM_SETS){const M=MUSEUM_SETS[sid],have=M.pieces.filter(p=>m.pieces[p]).length,done=!!m.perks[sid];
+    const row=el('div');row.style.marginTop='6px';row.innerHTML=`<div class="row" style="font-size:12px"><b style="color:${M.col}">${M.name}</b><span class="grow"></span><span class="muted">${have}/${M.pieces.length}${done?' · PERK':''}</span></div><div class="bar"><div style="width:${(have/M.pieces.length*100)}%;background:${M.col}"></div></div><div class="muted">${done?M.perkTxt:M.labels.map((lb,i)=>m.pieces[M.pieces[i]]?'★'+lb:lb).join(' · ')}</div>`;
+    c.appendChild(row);}pn.appendChild(c);}
+function storyLogsCard(pn){const st=story();pn.appendChild(el('div','h','Story Logs'));
+  if(!st.log.length){pn.appendChild(el('div','muted','Milestones you hit will show up here (skippable popups — never blocks idle).'));return;}
+  for(const e of st.log.slice().reverse()){const B=STORY_BEATS[e.id];if(!B)continue;pn.appendChild(el('div','card',`<div class="title" style="font-size:13px">${B.title}</div><div class="sub">${B.body}</div><div class="muted">${new Date(e.t).toLocaleString()}</div>`));}}
+function standingLine(id){const r=(S.faction.rep[id]||0),h=isHostile(id);if(h)return `<span style="color:#ff9aa8">Hostile</span>`;if(r>=700)return `<span style="color:#8dffb0">Allied</span>`;if(r>=120)return `<span style="color:#ffd36b">Friendly</span>`;return `<span class="muted">Neutral</span>`;}
+
+/* wrap panels */
+(function(){
+  const _pf=pFactions;pFactions=function(pn){_pf(pn);if(warUnlocked()){const h=el('div','h');h.textContent='Faction War';pn.insertBefore(h,pn.children[1]||null);const wrap=el('div');warBoardCard(wrap);pn.insertBefore(wrap,pn.children[2]||null);}
+    museumCard(pn);};
+  const _pm=pMore;pMore=function(pn){_pm(pn);museumCard(pn);storyLogsCard(pn);};
+  const _pmap=pMap;pMap=function(pn){warBoardCard(pn);_pmap(pn);
+    /* annotate planet list with owners — already rendered; add note */
+    if(warUnlocked()&&R.sel!=null&&R.sel>0){const own=planetOwner(R.sel);if(own){const tag=el('div','muted');tag.textContent='Territory: '+FAC[own].name+(isHostile(own)?' (you are Hostile)':'');pn.insertBefore(tag,pn.children[1]||null);}}};
+  const _pc=pColony;pColony=function(pn){_pc(pn);if(moonOwned()&&CO().on){const c=el('div','card'+(moonDocked()?' hl':''));
+    live(c,e=>setHTML(e,`<div class="title">Battle Moon Dock ${moonDocked()?'<span class="lv" style="background:#3a6aaa">DOCKED</span>':'<span class="lv">OPEN</span>'}</div><div class="sub">${moonDocked()?'+8% colony production (online; offline still at half speed on top of this). Undock to redeploy for defense.':'Park the Battle Moon here for a small colony boost. It cannot defend while docked.'}</div>`));
+    const bs=el('div','btns');
+    if(moonDocked()){bs.appendChild(btn('ghost',()=>'Undock at station',null,()=>undockMoon(S.at)));
+      if(C.armadaWarn>0)bs.appendChild(btn('red',()=>'Send to threatened planet',null,()=>undockMoon(S.at)));}
+    else bs.appendChild(btn('alt',()=>'Dock Battle Moon',null,()=>dockMoon(),()=>canDockMoon()));
+    c.appendChild(bs);pn.appendChild(c);}};
+  const _mpc=moonPanelCard;moonPanelCard=function(pn){_mpc(pn);if(!moonOwned())return;
+    const c=el('div','card');live(c,e=>setHTML(e,`<div class="title">Colony Dock ${moonDocked()?'<span class="lv" style="background:#3a6aaa">DOCKED · +8% colony</span>':''}</div><div class="sub">${moonDocked()?'Not defending while docked. Armada Warning offers a one-tap send.':'Dock at an active colony for +8% colony production.'}</div>`));
+    const bs=el('div','btns');
+    if(moonDocked()){bs.appendChild(btn('',()=>'Undock',null,()=>undockMoon(S.at)));
+      if(C.armadaWarn>0)bs.appendChild(btn('red',()=>'Send to '+P[S.at].name,null,()=>undockMoon(S.at)));}
+    else if(CO().on)bs.appendChild(btn('ghost',()=>'Dock at colony',null,()=>dockMoon(),()=>canDockMoon()));
+    c.appendChild(bs);pn.appendChild(c);};
+})();
+
+/* tick war from frame via wrap updateCombat / visibility */
+(function(){
+  const _uc=updateCombat;updateCombat=function(dt,t){warTick();_uc(dt,t);};
+})();
+
+/* expose for tests / PH augmentation happens in js3 */
+window.__PH12={newWar,sanitizeWar,newMuseum,sanitizeMuseum,newStory,sanitizeStory,warEnergy,spendWarEnergy,nextWarEnergyIn,warBlock,startFrontline,planetOwner,warTick,ensureWar,hurtRep,isHostile,museumPerk,museumSetDone,grantMuseumPiece,rollMuseumDrop,tryMuseumDrop,storyBeat,dockMoon,undockMoon,moonDocked,canDockMoon,moonDockBoost,MUSEUM_SETS,STORY_BEATS,WAR_EN_MAX,WAR_EN_T,applyWarWin,applyWarLoss,pushFront,standingLine,warBias};
+
+console.log('v12 faction-wars module loaded');
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -2465,7 +2772,9 @@ setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').cla
   if(!fresh&&(S.lastVer||5)<7){setTimeout(()=>toast('Updated! New Colony tab: build Habitats, a Trade Station, Research Lab, Refinery and Shipyard on your station, and watch your colonists move in. The colony keeps working offline at half speed.','gold'),(S.lastVer||5)<6?5200:2200);}
   if(!fresh&&(S.lastVer||5)<6){setTimeout(()=>toast('Updated! Drones now fight pirates · bigger raids · tap your station to fire the Super Laser · critical hits · sound (toggle in More) · tap-kill combos · vibration (toggle in More) · combat log · auto-buy · tougher Father Ships (no more jump discount)','gold'),2200);}
   if(!fresh&&(S.lastVer||5)<10&&S.galaxy>=1)setTimeout(()=>toast('Updated! New Factions tab: join the Galactic Patrol, Pirate Syndicate, Trader Guild, Explorer League or Mega Corp for a bonus, an ability and a minigame mission. First join is free.','gold'),6500);
-  if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);S.lastVer=11;
+  if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);
+  if(!fresh&&(S.lastVer||5)<12&&S.galaxy>=1)setTimeout(()=>toast('Updated! Faction Wars are live — join front-line battles, watch borders shift, fill the Relic Museum, and dock the Battle Moon at your colony.','gold'),8500);S.lastVer=12;
+  if(S.galaxy>=1){try{ensureWar();}catch(_){}}
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 mgInit();$('#abil').addEventListener('click',()=>{useAbility();});const mf=$('#moonfire');if(mf)mf.addEventListener('click',()=>{fireMoonLaser();});if(curFac()==='pirate')ensureTargets();
 if(S.moon)S.moon=sanitizeMoon(S.moon);
@@ -2473,6 +2782,7 @@ updTop();requestAnimationFrame(frame);
 window.PH={F:{newFaction,sanitizeFaction,joinFaction,canJoin,switchCost,switchLeft,isSwitch,rankOf,fRank,ff,addRep,energy,spendEnergy,nextEnergyIn,useAbility,abilCd,abilLeft,abilReady,abilNeed,abilUpdate,startMission,misBlock,mgExit,mgClose,mgFrame,MG,MGK,FX,factionTap,patrolDmg,traderMult,traderVol,corpOut,corpDisc,overdriveOn,travelK,rockK,pirateRaidSize,pirateOffline,incomeU,explorerArrive,discMult,takeDeal,SHIPS,FAC,FIDS,RANK_REP,buyShip,upShip,repairShip,repairAll,repairAllCost,shipCost,shipUpCost,shipRepCost,shipStat,fleetPower,fleetCap,ensureTargets,tgFill,tgDef,tgDefense,tgCap,tgCount,raidLootFrac,raidHaul,raidTapDmg,raidBlock,smashRock,killEnemy,damageEnemy,arrive,setWorld},colonyStep,colonyOffline,colonyViewOn,colonyTap,doTrade,tradeQuote,tradeFee,price,priceAt,buyCol,buyPerk,perk,perkCost,popCap,popBonus,colonyMult,rpRate,refThroughput,shipCap,shipTime,colonyShips,fighterCount,tvMax,exqMax,ensureColony,CMODS2,COLV,deckGeo,ROOMS,critChanceF:critChance,capSec,comboMult,vib,dronesEngaged,droneDps,critChance,critMult,stationTap,sfx,offlineRaids,resolveRaid,spawnORaid,outDefense,repelChance,buyTurret,turCost,pickType,fatherLose,jumpCost,C,startRaid,endRaid,startFather,fatherInfo,jumpProgress,fatherCanChallenge,fatherBeaten,maxHull,tapDmg,spawnEnemy,damagePart,fatherPart,partPos,combatTap,CMODS,buyCMod,inCombat,makeIcon,shotCost,shotSec,stationPower,fireLaser,laserReady,chargeTime,jumpGalaxy:()=>jumpGalaxy(),get S(){return S;},get P(){return P;},stationRate,outRate,outCap,capSec,tapAmt,MODS,bulk,buildCost,lvlCost,stoCost,travelCost,travelTime,jumpCost,canAfford,pay,accrueOutposts,save,load,fmt,empire,buyMod,buildOutpost,startTravel,collect,stored,R,setFS,renderPanel,remapWorld,rocks,spawnRock,get W(){return W;},get H(){return H;},
   moonOwned,moonUnlocked,moonBuyCost,buyMoon,buyMoonUp,startMoonMove,moonLv,moonMaxHp,moonDps,moonLaserCost,moonLaserReady,fireMoonLaser,moonLaserDmg,moonLaserChargeTime,moonAtPlanet,moonDefending,moonMoveTime,moonPanelCard,
   startArmadaWarning,startArmada,armadaSize,armadaMothers,armadaActive,spawnSalvageHaul,tapHaul,sanitizeMoon,newMoon,combatSum};
+try{const H=window.__PH12||{};Object.assign(PH,H);if(PH.F)Object.assign(PH.F,{hurtRep:H.hurtRep,isHostile:H.isHostile,startFrontline:H.startFrontline,warEnergy:H.warEnergy,spendWarEnergy:H.spendWarEnergy,planetOwner:H.planetOwner,museumPerk:H.museumPerk,museumSetDone:H.museumSetDone,grantMuseumPiece:H.grantMuseumPiece,storyBeat:H.storyBeat,dockMoon:H.dockMoon,undockMoon:H.undockMoon,moonDocked:H.moonDocked,canDockMoon:H.canDockMoon,ensureWar:H.ensureWar,warBlock:H.warBlock,applyWarWin:H.applyWarWin,applyWarLoss:H.applyWarLoss,hurtRep:H.hurtRep});}catch(e){console.warn('ph12 export',e);}
 })();
 </script>
 </body>
