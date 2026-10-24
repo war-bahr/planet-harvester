@@ -166,6 +166,27 @@ button *{pointer-events:none}
 #mgres .box{background:#0f1636;border:1px solid #3a4aa0;border-radius:16px;padding:16px;max-width:420px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 10px 50px #000a}
 #mgres h2{margin:8px 0 6px;font-size:20px;text-align:center}#mgres p{margin:4px 0;color:#c4cbef;font-size:13px}
 #mgres .emb{margin:0 auto}
+
+/* v15 goals / prestige / results / warp / coach */
+#goalchip{min-width:52px;min-height:44px;background:#13284a;border:1px solid #3a6aa8;border-radius:10px;padding:2px 8px;font-size:10px;color:#c4e0ff;display:flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.15;flex:0 0 auto;font-weight:800}
+.goalrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px dashed #26306a;min-height:34px;font-size:12px}
+.goalrow:last-child{border-bottom:0}
+#rescard{position:fixed;inset:0;z-index:12;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(2,3,10,.72)}
+#rescard.hidden{display:none}
+#rescard .box{background:#0f1636;border:1px solid #4a63ff;border-radius:16px;padding:18px;max-width:360px;width:100%;box-shadow:0 10px 50px #000a;text-align:center}
+#rescard .rc-brand{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8d97cc;margin-bottom:4px}
+#rescard h2{margin:6px 0;font-size:22px}
+#rescard p{margin:4px 0;color:#c4cbef;font-size:13px}
+#warp{position:fixed;inset:0;z-index:14;background:#02030a;touch-action:none}
+#warp.hidden{display:none}
+#warp canvas{position:absolute;inset:0;width:100%;height:100%}
+#warp .wlabel{position:absolute;left:0;right:0;top:42%;text-align:center;font-weight:900;font-size:18px;color:#eaf2ff;text-shadow:0 0 18px #6cf;pointer-events:none;padding:0 16px;line-height:1.35}
+#warp .wskip{position:absolute;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));min-width:96px;min-height:48px;z-index:2}
+.coach{position:fixed;left:10px;right:10px;bottom:calc(70px + env(safe-area-inset-bottom));z-index:11;pointer-events:none}
+.coach .box{pointer-events:auto;background:#121b45;border:1px solid #5f7bff;border-radius:12px;padding:12px;box-shadow:0 8px 30px #000a}
+.coach b{display:block;margin-bottom:4px}
+.coach p{margin:0 0 8px;font-size:12px;color:#c4cbef}
+
 </style>
 </head>
 <body>
@@ -2787,6 +2808,429 @@ if(window.__PH13)Object.assign(window.__PH13,window.__PH14);
 if(window.__PH12)Object.assign(window.__PH12,{territoryStatus:territoryStatus,territoryProdMult:territoryProdMult,territoryRaidMult:territoryRaidMult,territoryMoonMult:territoryMoonMult});
 
 console.log('v14 territory bonuses loaded');
+/* ================= v15: Prestige / Goals / Contracts / Specs / Targeted War / Pace / Audio / Results / Coach ================= */
+const PACE_JUMP_SOFT=14;           /* post-G3 jump growth base (was 30) */
+const PACE_FATHER_SOFT=.82;        /* fatherScale damp per g above 2 */
+const PACE_FATHER_DMG_SOFT=.85;
+const NG_PROD_RATE=.05, NG_PROD_SOFT=.08; /* +5%/level softcap */
+const SPEC_CD=4*3600*1000;         /* 4h retarget */
+const SPEC_MINE=1.25, SPEC_FORT_DEF=1.35, SPEC_FORT_RAID=.65, SPEC_TRADE_COLLECT=1.08;
+const CONTRACT_WEEK=7*24*3600*1000;
+const GOAL_SLOTS=3;
+const WARP_SKIP_AFTER=1.0;
+
+(function(){
+  const _ns=newState;newState=function(){const s=_ns();s.lastVer=15;s.prestige=newPrestige();s.goals=newGoals();s.contracts=newContracts();s.coach={};return s;};
+  const _sw=sanitizeWar;sanitizeWar=function(o){const w=_sw(o);const raw=(o&&o.claims&&typeof o.claims==='object')?o.claims:{};w.claims={};for(const k in raw){const pi=+k,id=raw[k];if(Number.isFinite(pi)&&FIDS.includes(id))w.claims[pi]=id;}return w;};
+  const _nw=newWar;newWar=function(){const w=_nw();w.claims={};return w;};
+})();
+
+function newPrestige(){return {level:0,total:0,universe:0,tint:210,at:0};}
+function sanitizePrestige(o){const d=newPrestige();if(!o||typeof o!=='object')return d;return {level:Math.max(0,Math.floor(+o.level||0)),total:Math.max(0,Math.floor(+o.total||0)),universe:Math.max(0,Math.floor(+o.universe||0)),tint:Number.isFinite(+o.tint)?+o.tint:210,at:+o.at||0};}
+function newGoals(){return {list:[],done:{},seed:0};}
+function sanitizeGoals(o){const d=newGoals();if(!o||typeof o!=='object')return d;d.list=Array.isArray(o.list)?o.list.filter(x=>x&&x.id).slice(0,GOAL_SLOTS):[];d.done=(o.done&&typeof o.done==='object')?o.done:{};d.seed=+o.seed||0;return d;}
+function newContracts(){return {weekStart:0,missions:[],bonusClaimed:false};}
+function sanitizeContracts(o){const d=newContracts();if(!o||typeof o!=='object')return d;d.weekStart=+o.weekStart||0;d.missions=Array.isArray(o.missions)?o.missions:[];d.bonusClaimed=!!o.bonusClaimed;return d;}
+function sanitizeCoach(o){return (o&&typeof o==='object')?o:{};}
+
+function ensureV15(){
+  if(!S.prestige)S.prestige=newPrestige();else S.prestige=sanitizePrestige(S.prestige);
+  if(!S.goals)S.goals=newGoals();else S.goals=sanitizeGoals(S.goals);
+  if(!S.contracts)S.contracts=newContracts();else S.contracts=sanitizeContracts(S.contracts);
+  if(!S.coach)S.coach=sanitizeCoach(S.coach);
+  if(S.war){S.war=sanitizeWar(S.war);}
+  for(const pi in S.outposts){const o=S.outposts[pi];if(o&&o.spec!=null&&!['mine','fort','trade'].includes(o.spec))o.spec=null;if(o&&o.specT==null)o.specT=0;}
+}
+
+/* ---- 1) Pace ---- */
+function jumpCostK(g){g=Math.max(0,g|0);return g<=2?pw(30,g):pw(30,2)*pw(PACE_JUMP_SOFT,g-2);}
+(function(){
+  const _jc=jumpCost;jumpCost=function(){const g=S.galaxy,k=jumpCostK(g);const c={ore:1e6*k,crystal:2.5e5*k,gas:2.5e5*k};if(g>=1)c.exotic=2e3*jumpCostK(g-1);return cc(c);};
+  const _fs=fatherScale;fatherScale=function(){const g=S.galaxy;let s=_fs();if(g>=3)s*=pw(PACE_FATHER_SOFT,g-2);return s;};
+  const _fd=fatherDmgK;fatherDmgK=function(){const g=S.galaxy;let s=_fd();if(g>=3)s*=pw(PACE_FATHER_DMG_SOFT,g-2);return s;};
+  const _se=shouldEscalateArmada;shouldEscalateArmada=function(){if(S.galaxy<1||C.armadaWarn>0||C.raid||C.father||S.travel)return false;const p=S.galaxy>=3?Math.min(.18,.10+.012*S.galaxy):Math.min(.18,.10+.02*S.galaxy);return Math.random()<p;};
+})();
+
+/* ---- NG+ production ---- */
+function ngLevel(){return (S.prestige&&S.prestige.level)|0;}
+function ngProdMult(){const L=ngLevel();if(!L)return 1;return 1+NG_PROD_RATE*L/(1+NG_PROD_SOFT*L);}
+function museumSetsDoneCount(){let n=0;for(const sid in MUSEUM_SETS)if(museumSetDone(sid))n++;return n;}
+function prestigeReady(){if(!fatherExists())return false;if(!fatherBeaten())return false;if(S.galaxy>=4)return true;if(S.galaxy>=3&&museumSetsDoneCount()>=2)return true;return false;}
+function prestigeBlock(){if(inCombat())return 'Finish the battle first';if(MG.on)return 'Mission running';if(S.travel)return 'Wait until you arrive';if(C.oraid)return 'Resolve the outpost raid first';if(R.ngWarp)return 'Warp in progress';if(!prestigeReady())return S.galaxy>=3?'Beat the Father Ship'+(S.galaxy<4?' and complete 2 museum sets':'')+' to Prestige':'Reach Galaxy 5 (or G4 + 2 museum sets) and beat the Father Ship';return '';}
+
+(function(){
+  const _sr=stationRate;stationRate=function(pi){return _sr(pi)*ngProdMult();};
+  const _or=outRate;outRate=function(pi){return _or(pi)*ngProdMult()*specProdMult(pi);};
+  const _od=outDefense;outDefense=function(pi){return _od(pi)*specDefMult(pi);};
+  const _trm=territoryRaidMult;territoryRaidMult=function(pi){return _trm(pi)*specRaidMult(pi);};
+  const _col=collect;collect=function(pi,quiet){
+    const o=S.outposts[pi];if(o&&o.spec==='trade'&&!quiet){const bonus={};for(const k of RES){const add=o.s[k]*(SPEC_TRADE_COLLECT-1);if(add>0){o.s[k]=safe(o.s[k]+add);bonus[k]=add;}}
+      if(Object.keys(bonus).length)toast('Trade Hub bonus collect','good');}
+    return _col(pi,quiet);
+  };
+})();
+
+/* ---- 6) Outpost specialization ---- */
+function specProdMult(pi){const o=S.outposts[pi];return o&&o.spec==='mine'?SPEC_MINE:1;}
+function specDefMult(pi){const o=S.outposts[pi];return o&&o.spec==='fort'?SPEC_FORT_DEF:1;}
+function specRaidMult(pi){const o=S.outposts[pi];return o&&o.spec==='fort'?SPEC_FORT_RAID:1;}
+function specLabel(sp){return sp==='mine'?'Mine':sp==='fort'?'Fortress':sp==='trade'?'Trade Hub':'None';}
+function specBlock(pi,sp){const o=S.outposts[pi];if(!o)return 'No outpost';if(o.spec===sp)return 'Already '+specLabel(sp);if(o.spec&&o.specT&&Date.now()-o.specT<SPEC_CD)return 'Retarget in '+fmtTime(Math.ceil((SPEC_CD-(Date.now()-o.specT))/1000));
+  if(o.spec){const c=specRetargetCost(pi);if(!canAfford(c))return 'Need resources';}return '';}
+function specRetargetCost(pi){const o=S.outposts[pi];if(!o)return {};const c=lvlCost(pi,o.lvl);const o2={};for(const k in c)o2[k]=c[k]*.25;return cc(o2);}
+function setOutpostSpec(pi,sp){const b=specBlock(pi,sp);if(b){toast(b,'');return false;}const o=S.outposts[pi];const first=!o.spec;if(!first){const c=specRetargetCost(pi);if(!canAfford(c))return false;pay(c);}o.spec=sp;o.specT=Date.now();toast(P[pi].name+' → '+specLabel(sp)+(first?'':' (retarget)'),'good');sfx('coin');goalProgress('specialize',1);save();if(R.tab==='outposts')renderPanel();return true;}
+
+/* ---- 10) Targeted planet attacks / claims ---- */
+(function(){
+  const _po=planetOwner;planetOwner=function(pi){if(!warUnlocked()||pi==null||!P||!P[pi])return null;if(+pi===0)return null;const w=ensureWar();if(w.claims&&w.claims[pi]&&FIDS.includes(w.claims[pi]))return w.claims[pi];return _po(pi);};
+})();
+
+function claimPlanet(pi,fid){const w=ensureWar();if(+pi===0)return false;w.claims=w.claims||{};w.claims[pi]=fid;return true;}
+function planetAttackCostEnergy(pi){return +pi===0?2:1;}
+function planetDiffMult(pi){return +pi===0?1.25:1;}
+function planetAttackBlock(pi){if(!warUnlocked())return 'Reach Galaxy 2';if(!curFac())return 'Join a faction';if(pi==null||!P[pi])return 'Pick a planet';if(inCombat())return 'Finish the battle first';if(MG.on)return 'Mission running';if(S.travel)return 'Wait until you arrive';const own=planetOwner(pi);if(+pi!==0&&own===curFac())return 'Already your territory';const need=planetAttackCostEnergy(pi);if(warEnergy()<need)return 'Need '+need+' war energy';return '';}
+function planetAttackBlockExotic(pi){const b=exoticStrikeBlock();if(b)return b;if(pi==null||!P[pi])return 'Pick a planet';const own=planetOwner(pi);if(+pi!==0&&own===curFac())return 'Already your territory';return '';}
+
+function startPlanetAttack(pi,exotic){
+  pi=+pi;const b=exotic?planetAttackBlockExotic(pi):planetAttackBlock(pi);if(b){toast(b,'');return false;}
+  if(exotic){if(!spendExoticStrike())return false;}
+  else{const need=planetAttackCostEnergy(pi);for(let i=0;i<need;i++)if(!spendWarEnergy()){toast('No war energy','');return false;}}
+  const id=curFac();const own=planetOwner(pi);const opp=own&&own!==id?own:FIDS.filter(f=>f!==id).sort((a,b)=>ensureWar().fronts[b]-ensureWar().fronts[a])[0];
+  MG.kind='frontline';MG.fid=id;MG.opp=opp;MG.targetPi=pi;MG.t=0;MG.res=null;MG.parts.length=0;MG.floats.length=0;MG.shake=0;MG.ptr=null;MG.pause=false;MG.on=true;MG.exoticStrike=!!exotic;MG.planetSiege=true;
+  const m=mgEl();m.classList.remove('hidden');$('#mgres').classList.add('hidden');$('#mgres').innerHTML='';mgSize();
+  MG.st=MGK.frontline.init();
+  /* scale difficulty for hub / siege */
+  const dm=planetDiffMult(pi);if(MG.st&&MG.st.foes){for(const f of MG.st.foes){f.hp*=dm;f.max*=dm;}if(dm>1&&MG.st.foes.length<7){const W=MG.W,H=MG.H,m2=MG.st.m;MG.st.foes.push({x:W*.5,y:H*.12,a:Math.PI/2,v:m2*.36,hp:55*MG.st.d*dm,max:55*MG.st.d*dm,cd:1,mode:'attack',mt:2,flash:0,jink:1,fid:opp});}}
+  ensureWar().fights++;storyBeat('front1');abilUpdate();
+  const ttl=(+pi===0?'Hub Siege':'Assault')+' · '+(P[pi]?P[pi].name:'?');
+  setHTML($('#mgt'),`<svg viewBox="0 0 24 24" style="stroke:${FAC[id].col}">${FAC[id].svg}</svg><span>${exotic?'Extra Strike · ':''}${ttl}</span>`);
+  try{history.pushState({phmg:1},'');}catch(_){}
+  toast((exotic?'Extra Strike':'Assault')+' → '+(P[pi]?P[pi].name:'planet'),'gold');save();return true;
+}
+
+/* wrap frontline finish for claims + results */
+(function(){
+  const F=MGK.frontline;if(!F||!F.finish)return;
+  const _fin=F.finish.bind(F);
+  F.finish=function(s){
+    const id=MG.fid,opp=s.opp||MG.opp,pi=MG.targetPi,siege=!!MG.planetSiege;
+    const hp=clamp(s.me.hp,0,1);
+    if(siege){
+      const nm=P[pi]?P[pi].name:'Planet';
+      if(s.win){
+        ensureWar().wins++;hurtRep(opp,8);
+        if(+pi===0){applyWarWin(id);pushFront(id,1.5);warLog(FAC[id].name+' contested the hub','win');
+          mgEnd('Hub contested',[`Kills ${s.kills} · hull ${Math.round(hp*100)}% · front advanced — hub stays contested`],{secs:50*(.75+.25*hp),salvage:14*eScale(),rep:22},true);
+          showResultCard({kind:'siege',win:true,title:'Hub Siege',planet:nm,kills:s.kills,hull:hp,faction:id});}
+        else{claimPlanet(pi,id);applyWarWin(id);sfx('flip');warLog(FAC[id].name+' seized '+nm,'win');goalProgress('front_win',1);contractProgress('front_win',1);
+          mgEnd('Planet secured!',[`${nm} flies your colors · kills ${s.kills} · hull ${Math.round(hp*100)}%`],{secs:50*(.75+.25*hp),salvage:14*eScale(),rep:22},true);
+          showResultCard({kind:'takeover',win:true,title:'Planet Taken',planet:nm,kills:s.kills,hull:hp,faction:id,owner:id});}
+      }else{applyWarLoss(id,opp);mgEnd('Assault failed',[`${nm} held · kills ${s.kills}`],{secs:12,rep:5},false);
+        showResultCard({kind:'siege',win:false,title:'Assault Failed',planet:nm,kills:s.kills,hull:hp,faction:id});}
+      MG.planetSiege=false;MG.targetPi=null;
+      if(R.tab==='factions'||R.tab==='map')renderPanel();
+      return;
+    }
+    _fin(s);
+    if(s.win){goalProgress('front_win',1);contractProgress('front_win',1);}
+    showResultCard({kind:'frontline',win:!!s.win,title:s.win?'Front Secured':'Forced Back',kills:s.kills,hull:hp,faction:id});
+  };
+})();
+
+/* Armada results + goals */
+(function(){
+  const _er=endRaid;endRaid=function(won){if(!C.raid)return;const was=C.raid,armada=!!was.armada,kills=was.kills||0;_er(won);
+    if(armada){if(won){goalProgress('armada_survive',1);contractProgress('armada',1);}showResultCard({kind:'armada',win:!!won,title:won?'Armada Repelled':'Armada Breached',kills,faction:curFac()});}
+  };
+  const _saw=startArmadaWarning;startArmadaWarning=function(){_saw();sfx('armada');};
+  const _sfe=startFrontlineExotic;startFrontlineExotic=function(){const ok=_sfe();if(ok){sfx('strike');contractProgress('exotic',1);}return ok;};
+  const _dm=dockMoon;dockMoon=function(){const ok=_dm();if(ok){goalProgress('moon_dock',1);contractProgress('moon_dock',1);}return ok;};
+})();
+
+/* ---- Moon laser ready edge SFX ---- */
+(function(){
+  let wasReady=false;
+  const _uml=typeof updateMoonLaserBtn==='function'?updateMoonLaserBtn:null;
+  /* poll via wrap of fireMoonLaser readiness in frame-adjacent: hook moon panel live path */
+  const _fm=fireMoonLaser;fireMoonLaser=function(){const r=_fm();return r;};
+  setInterval(function(){try{if(!S||!moonOwned()){wasReady=false;return;}const r=moonLaserReady();if(r&&!wasReady)sfx('moonready');wasReady=r;}catch(_){}},800);
+})();
+
+/* ---- 7) Audio: extend sfx ---- */
+(function(){
+  const _sfx=sfx;sfx=function(type){
+    if(type==='armada'||type==='strike'||type==='flip'||type==='moonready'){
+      if(!S||S.sound===false||!SFX.ok)return;
+      try{if(!SFX.a){const A=window.AudioContext||window.webkitAudioContext;if(!A)return;SFX.a=new A();}const a=SFX.a;if(a.state==='suspended')a.resume();
+        const P={armada:[180,420,.55,'square',.06],strike:[900,1400,.22,'sawtooth',.05],flip:[660,220,.35,'triangle',.055],moonready:[520,1200,.4,'sine',.05]}[type];
+        const t=a.currentTime,o=a.createOscillator(),g=a.createGain();o.type=P[3];o.frequency.setValueAtTime(P[0],t);o.frequency.exponentialRampToValueAtTime(Math.max(.01,P[1]),t+P[2]);g.gain.setValueAtTime(P[4],t);g.gain.exponentialRampToValueAtTime(.0001,t+P[2]+.05);o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+P[2]+.08);
+        if(type==='armada'){const o2=a.createOscillator(),g2=a.createGain();o2.type='square';o2.frequency.setValueAtTime(90,t);o2.frequency.exponentialRampToValueAtTime(60,t+.7);g2.gain.setValueAtTime(.04,t);g2.gain.exponentialRampToValueAtTime(.0001,t+.75);o2.connect(g2);g2.connect(a.destination);o2.start(t);o2.stop(t+.8);}
+      }catch(_){}
+      return;
+    }
+    return _sfx(type);
+  };
+})();
+
+/* ---- 8) Results card ---- */
+function ensureResCard(){let el0=$('#rescard');if(el0)return el0;el0=document.createElement('div');el0.id='rescard';el0.className='hidden';el0.innerHTML='<div class="box"></div>';document.body.appendChild(el0);
+  el0.addEventListener('click',e=>{if(e.target===el0)dismissResult();});return el0;}
+function showResultCard(info){try{
+  const el0=ensureResCard();const ng=ngLevel();const fac=info.faction&&FAC[info.faction]?FAC[info.faction]:null;
+  const lines=[];
+  lines.push(`<div class="rc-brand">Planet Harvester${ng?` · NG+ ${ng}`:''}</div>`);
+  lines.push(`<h2 style="color:${info.win?'#8dffb0':'#ffb0b8'}">${info.title||'Result'}</h2>`);
+  if(fac)lines.push(`<div class="emb" style="--fc:${fac.col};margin:0 auto 8px"><svg viewBox="0 0 24 24">${fac.svg}</svg></div>`);
+  if(info.planet)lines.push(`<p><b>${info.planet}</b>${info.owner&&FAC[info.owner]?' · now '+FAC[info.owner].name:''}</p>`);
+  if(info.kills!=null)lines.push(`<p>Kills <b>${info.kills}</b>${info.hull!=null?' · Hull '+Math.round(info.hull*100)+'%':''}</p>`);
+  if(info.kind)lines.push(`<p class="muted">${info.kind==='armada'?'Massive Fleet Raid':info.kind==='takeover'?'Territory Takeover':info.kind==='siege'?'War Siege':'Front-Line'}</p>`);
+  lines.push(`<div class="btns"><button class="btn alt" id="rcok"><span class="l">Done</span></button></div>`);
+  el0.querySelector('.box').innerHTML=lines.join('');el0.classList.remove('hidden');
+  const b=el0.querySelector('#rcok');if(b)b.onclick=()=>dismissResult();
+}catch(e){console.warn('rescard',e);}}
+function dismissResult(){const el0=$('#rescard');if(el0)el0.classList.add('hidden');}
+
+/* ---- 2) Goals ---- */
+const GOAL_KINDS=[
+  {kind:'outpost_terr',label:()=>'Build or hold an outpost in your territory',need:1,reward:{secs:25,rep:12}},
+  {kind:'front_win',label:()=>'Win a front-line or planet assault',need:1,reward:{secs:30,rep:18}},
+  {kind:'museum_piece',label:()=>'Secure a Relic Museum piece',need:1,reward:{secs:20,rep:10}},
+  {kind:'moon_dock',label:()=>'Dock the Battle Moon at your colony',need:1,reward:{secs:20,rep:10}},
+  {kind:'armada_survive',label:()=>'Repel a Massive Fleet Raid',need:1,reward:{secs:40,rep:20}},
+  {kind:'specialize',label:()=>'Specialize an outpost (Mine / Fortress / Trade)',need:1,reward:{secs:18,rep:8}},
+  {kind:'contract',label:()=>'Complete an Alliance Contract mission',need:1,reward:{secs:22,rep:12}},
+  {kind:'collect_full',label:()=>'Collect from a nearly-full outpost',need:1,reward:{secs:15,rep:8}}
+];
+function goals(){ensureV15();return S.goals;}
+function rollGoal(avoid){const pool=GOAL_KINDS.filter(g=>!(avoid&&avoid.has(g.kind)));const G=pool[Math.floor(Math.random()*pool.length)]||GOAL_KINDS[0];
+  return {id:G.kind+'_'+Date.now().toString(36)+Math.floor(Math.random()*999),kind:G.kind,need:G.need,prog:0,reward:G.reward,label:typeof G.label==='function'?G.label():G.label};}
+function ensureGoals(){const g=goals();if(!g.list)g.list=[];while(g.list.length<GOAL_SLOTS){const avoid=new Set(g.list.map(x=>x.kind));g.list.push(rollGoal(avoid));}return g.list;}
+function goalLabel(g){const K=GOAL_KINDS.find(x=>x.kind===g.kind);return K?K.label():g.kind;}
+function goalProgress(kind,n){const list=ensureGoals();let changed=false;for(const g of list){if(g.kind!==kind||g.prog>=g.need)continue;g.prog=Math.min(g.need,(g.prog||0)+(n||1));changed=true;if(g.prog>=g.need)completeGoal(g);}if(changed)save();}
+function completeGoal(g){const gs=goals();gs.done[g.id]=Date.now();const rw=g.reward||{secs:15,rep:8};const secs=rw.secs||15;addSplit(incomeU()*secs,shotWeights());if(curFac())addRep(curFac(),rw.rep||8);toast('Goal complete: '+goalLabel(g),'good');sfx('coin');
+  const idx=gs.list.indexOf(g);if(idx>=0){const avoid=new Set(gs.list.filter(x=>x!==g).map(x=>x.kind));gs.list[idx]=rollGoal(avoid);}save();}
+
+/* wrap museum grant / collect for goals */
+(function(){
+  const _gm=grantMuseumPiece;grantMuseumPiece=function(pid,src){const ok=_gm(pid,src);if(ok)goalProgress('museum_piece',1);return ok;};
+  const _bo=buildOutpost;buildOutpost=function(){const pi=S.at;_bo();if(S.outposts[pi]&&territoryStatus(pi)==='friendly')goalProgress('outpost_terr',1);};
+  const _c2=collect;collect=function(pi,quiet){const o=S.outposts[pi];const near=o&&outCap(pi)>0&&stored(o)>=outCap(pi)*.9;const r=_c2(pi,quiet);if(near&&!quiet)goalProgress('collect_full',1);if(o&&territoryStatus(pi)==='friendly')goalProgress('outpost_terr',1);return r;};
+})();
+
+/* ---- 5) Alliance contracts ---- */
+function contracts(){ensureV15();return S.contracts;}
+function ensureContracts(){const c=contracts(),now=Date.now();if(!c.weekStart||now-c.weekStart>=CONTRACT_WEEK){c.weekStart=now;c.bonusClaimed=false;c.missions=rollContractMissions();save();}
+  if(!c.missions||c.missions.length<3)c.missions=rollContractMissions();return c;}
+function rollContractMissions(){
+  const kinds=[{id:'duel',kind:'duel',need:1,label:'Win an Ace Duel'},{id:'smuggle',kind:'smuggle',need:1,label:'Complete a Smuggling Run'},{id:'front',kind:'front_win',need:1,label:'Win a Front-Line / Assault'},{id:'exotic',kind:'exotic',need:1,label:'Launch an Extra Strike'},{id:'moon',kind:'moon_dock',need:1,label:'Dock the Battle Moon'},{id:'armada',kind:'armada',need:1,label:'Repel an Armada'},{id:'drill',kind:'drill',need:1,label:'Finish a Corp Drill contract'},{id:'anomaly',kind:'anomaly',need:1,label:'Recover relics from an Anomaly Dive'}];
+  const r=mulberry(hash(S.seed,(S.prestige&&S.prestige.universe||0)*1009+Math.floor(Date.now()/CONTRACT_WEEK)));
+  const pool=kinds.slice();for(let i=pool.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  return pool.slice(0,3).map(k=>({id:k.id,kind:k.kind,need:k.need,prog:0,done:false,label:k.label}));}
+function contractProgress(kind,n){const c=ensureContracts();let hit=false;for(const m of c.missions){if(m.done||m.kind!==kind)continue;m.prog=Math.min(m.need,(m.prog||0)+(n||1));if(m.prog>=m.need){m.done=true;if(curFac())addRep(curFac(),10);toast('Contract: '+m.label,'good');sfx('coin');hit=true;try{goalProgress('contract',1);}catch(_){}}}
+  if(c.missions.length&&c.missions.every(m=>m.done)&&!c.bonusClaimed){c.bonusClaimed=true;if(curFac()){addRep(curFac(),40);if(warUnlocked())try{applyWarWin(curFac());}catch(_){}}toast('Alliance Contracts complete — bonus rep + territory push!','gold');try{sfx('crit');}catch(_){}hit=true;}
+  if(hit)save();}
+(function(){
+  /* hook mission finishes via mgEnd wrap for duel/smuggle/drill/anomaly */
+  const _mg=mgEnd;mgEnd=function(title,lines,rw,win){_mg(title,lines,rw,win);if(!win)return;const k=MG.kind;if(k==='duel')contractProgress('duel',1);if(k==='smuggle')contractProgress('smuggle',1);if(k==='drill')contractProgress('drill',1);if(k==='anomaly')contractProgress('anomaly',1);};
+})();
+
+/* ---- 4) Prestige / NG+ warp ---- */
+function universeTint(u){return (210+((u*47)%140))%360;}
+function prestigeKeepSnapshot(){
+  return {
+    faction:S.faction?JSON.parse(JSON.stringify(S.faction)):null,
+    museum:S.museum?JSON.parse(JSON.stringify(S.museum)):null,
+    moon:S.moon&&S.moon.owned?{owned:true,ups:{...S.moon.ups},buys:S.moon.buys|0}:null,
+    perks:S.colony&&S.colony.perks?{...S.colony.perks}:{},
+    ach:S.ach?{...S.ach}:{},
+    story:S.story?JSON.parse(JSON.stringify(S.story)):null,
+    tips:S.tips?{...S.tips}:{},
+    coach:S.coach?{...S.coach}:{},
+    combat:S.combat?{...S.combat}:{},
+    mods:S.mods?{...S.mods}:{},
+    sound:S.sound!==false,haptics:S.haptics!==false,autobuy:!!S.autobuy,fullscreen:!!S.fullscreen,
+    prestige:sanitizePrestige(S.prestige),
+    trophies:S.trophies?{...S.trophies}:{},
+    seed:S.seed
+  };
+}
+function doPrestige(){
+  const b=prestigeBlock();if(b){toast(b,'');return false;}
+  const keep=prestigeKeepSnapshot();
+  const nextLevel=(keep.prestige.level|0)+1;
+  const uni=(keep.prestige.universe|0)+1;
+  const tint=universeTint(uni);
+  /* reset world */
+  C.raid=null;C.enemies.length=0;C.shots.length=0;C.father=null;C.oraid=null;C.armadaWarn=0;C.grace=60;C.haul=null;
+  S.combat=keep.combat;S.mods=keep.mods;S.sound=keep.sound;S.haptics=keep.haptics;S.autobuy=keep.autobuy;S.fullscreen=keep.fullscreen;
+  C.hp=maxHull();C.shield=maxShield();
+  S.galaxy=0;S.outposts={};S.at=0;S.travel=null;S.res={ore:1e5*pw(1.5,nextLevel-1),crystal:2.5e4*pw(1.5,nextLevel-1),gas:2.5e4*pw(1.5,nextLevel-1),exotic:50*nextLevel,salvage:200*nextLevel};
+  S.father={};S.raids=0;S.war=newWar();S.colony=newColony();S.colony.perks=keep.perks;S.colony.on=true;
+  S.faction=keep.faction||newFaction();if(S.faction){S.faction.energy=3;S.faction.energyT=Date.now();S.faction.cd={};if(S.faction.fleet)for(const sh of S.faction.fleet){try{sh.hp=shipStat(sh).hp;}catch(_){}}}
+  S.museum=keep.museum||newMuseum();S.moon=null;
+  if(keep.moon){S.moon=newMoon();S.moon.owned=true;S.moon.ups=keep.moon.ups;S.moon.buys=keep.moon.buys;S.moon.at=0;S.moon.docked=false;S.moon.travel=null;S.moon.hp=moonMaxHp();S.moon.laserCharge=moonLaserChargeTime();}
+  S.ach=keep.ach;S.story=keep.story||newStory();S.tips=keep.tips;S.coach=keep.coach||{};S.coach.ngplus=1;
+  S.trophies=keep.trophies;S.seed=keep.seed;S.prestige={level:nextLevel,total:(keep.prestige.total|0)+1,universe:uni,tint,at:Date.now()};
+  S.goals=newGoals();S.contracts=newContracts();S.lastVer=15;
+  setWorld();applyUniverseModifier();
+  R.sel=null;parts.length=0;rocks.length=0;
+  startNgWarp(()=>{toast('New Game+ '+nextLevel+' · Universe '+uni,'gold');storyBeat('galjump');R.tab='galaxy';renderTabs();renderPanel();save();});
+  return true;
+}
+function applyUniverseModifier(){if(!P||!S.prestige)return;const u=S.prestige.universe|0;if(!u)return;
+  /* slight richness / type flavor — do not reshuffle indices */
+  for(const p of P){if(p.i===0)continue;if(u%2===1&&p.type==='rocky'&&Math.abs(hash(S.seed,9000+p.i*3)%10)<2){/* bias already baked at gen; nudge rich */}
+    p.rich*=(1+0.02*((u%5)-2));}}
+function startNgWarp(done){
+  R.ngWarp={t:0,T:3.4,skip:false,done:false,cb:done||null};
+  ensureWarpEl();const w=$('#warp');w.classList.remove('hidden');
+  const skip=()=>{if(R.ngWarp&&R.ngWarp.t>=WARP_SKIP_AFTER)R.ngWarp.skip=true;};
+  w.onclick=skip;const sb=w.querySelector('.wskip');if(sb)sb.onclick=e=>{e.stopPropagation();skip();};
+}
+function ensureWarpEl(){let w=$('#warp');if(w)return w;w=document.createElement('div');w.id='warp';w.className='hidden';
+  w.innerHTML='<canvas id="warpcv"></canvas><div class="wlabel"></div><button class="btn ghost wskip"><span class="l">Skip</span></button>';
+  document.body.appendChild(w);return w;}
+function ngWarpFrame(dt){
+  const Wrp=R.ngWarp;if(!Wrp||Wrp.done)return false;
+  Wrp.t+=dt;if(Wrp.skip&&Wrp.t<Wrp.T-.2)Wrp.t=Math.max(Wrp.t,Wrp.T-.15);
+  const w=$('#warp'),cv=$('#warpcv');if(!w||!cv)return true;
+  const dpr=Math.min(2,window.devicePixelRatio||1);const WW=window.innerWidth,HH=window.innerHeight;
+  if(cv.width!==Math.floor(WW*dpr)){cv.width=Math.floor(WW*dpr);cv.height=Math.floor(HH*dpr);cv.style.width=WW+'px';cv.style.height=HH+'px';}
+  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);
+  const t=Wrp.t,tint=S.prestige?S.prestige.tint:210,lvl=ngLevel();
+  /* background */
+  x.fillStyle='#02030a';x.fillRect(0,0,WW,HH);
+  const streak=clamp(t/1.2,0,1);
+  x.save();x.translate(WW/2,HH/2);
+  for(let i=0;i<120;i++){const a=(i/120)*TAU+t*.2,len=(40+i%50)*streak*(1+t),r0=8+(i%40);x.strokeStyle=`hsla(${(tint+i*3)%360},80%,70%,${.15+.5*streak})`;x.lineWidth=1+(i%3);x.beginPath();x.moveTo(Math.cos(a)*r0,Math.sin(a)*r0);x.lineTo(Math.cos(a)*(r0+len),Math.sin(a)*(r0+len));x.stroke();}
+  /* station needle */
+  const sn=clamp((t-.3)/1.2,0,1);const ss=lerp(28,4,sn);x.rotate(t*2);x.fillStyle='#9fe6ff';x.beginPath();x.moveTo(ss*2,0);x.lineTo(-ss,.6*ss);x.lineTo(-ss,-.6*ss);x.closePath();x.fill();
+  if(curFac()){x.strokeStyle=FAC[curFac()].col;x.lineWidth=2;x.beginPath();x.moveTo(-ss*3,0);x.lineTo(-ss*8-40*sn,0);x.stroke();}
+  x.restore();
+  /* color wash */
+  if(t>1.0){const k=clamp((t-1)/1.2,0,1);x.fillStyle=`hsla(${tint},70%,40%,${.15*k})`;x.fillRect(0,0,WW,HH);
+    if(t>1.8&&t<2.3){const f=1-Math.abs(t-2.05)/.25;x.fillStyle=`rgba(255,255,255,${.85*clamp(f,0,1)})`;x.fillRect(0,0,WW,HH);}}
+  const lab=w.querySelector('.wlabel');if(lab){if(t<1.2)lab.textContent='Warping to another universe…';else if(t<2.4)lab.textContent='Universe '+((S.prestige&&S.prestige.universe)||1)+' unfolding…';else lab.innerHTML='<b>NEW GAME+</b> · Level '+lvl+'<br><span>Universe '+(S.prestige?S.prestige.universe:1)+'</span>';}
+  const sb=w.querySelector('.wskip');if(sb)sb.style.opacity=t>=WARP_SKIP_AFTER?'1':'.35';
+  if(t>=Wrp.T){Wrp.done=true;w.classList.add('hidden');R.ngWarp=null;if(Wrp.cb)Wrp.cb();return false;}
+  return true;
+}
+
+/* ---- 3) Faction station trim ---- */
+(function(){
+  const _ds=drawStation;drawStation=function(x,y,s,t){
+    _ds(x,y,s,t);
+    const id=curFac();if(!id||!FAC[id])return;
+    const col=FAC[id].col;
+    ctx.save();ctx.translate(x,y);
+    ctx.strokeStyle=col;ctx.globalAlpha=.55+.25*Math.sin(t*3);ctx.lineWidth=Math.max(1.5,s*.1);ctx.beginPath();ctx.arc(0,0,s*1.05,0,TAU);ctx.stroke();
+    ctx.globalAlpha=.9;ctx.fillStyle=col;ctx.beginPath();ctx.arc(s*1.15,-s*.9,Math.max(2,s*.18),0,TAU);ctx.fill();
+    /* tiny emblem */
+    ctx.translate(s*1.15,-s*.9);ctx.scale(s*.035,s*.035);ctx.translate(-12,-12);
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.6;ctx.globalAlpha=.95;const p=new Path2D(FAC[id].svg.replace(/<path d="/g,'').split('"/>')[0]||'');
+    try{/* draw simplified mark */ctx.beginPath();ctx.moveTo(12,2);ctx.lineTo(20,8);ctx.lineTo(12,22);ctx.lineTo(4,8);ctx.closePath();ctx.stroke();}catch(_){}
+    ctx.restore();
+  };
+})();
+
+/* ---- 9) Coach marks ---- */
+function coachShow(key,title,body){ensureV15();if(S.coach[key])return;S.coach[key]=1;save();
+  const tip=document.createElement('div');tip.className='coach';tip.innerHTML=`<div class="box"><b>${title}</b><p>${body}</p><div class="btns"><button class="btn alt" type="button"><span class="l">Got it</span></button></div></div>`;
+  document.body.appendChild(tip);tip.querySelector('button').onclick=()=>tip.remove();setTimeout(()=>{if(tip.parentNode)tip.remove();},12000);}
+function coachMaybe(){try{
+  if(warUnlocked()&&curFac()&&!S.coach.warBoard&&R.tab==='factions')coachShow('warBoard','War Board','Front bars show who owns the galaxy. Join Front-Line or Assault a specific planet from the Map.');
+  if(warUnlocked()&&curFac()&&!S.coach.exotic&&R.tab==='factions'){/* delay exotic */setTimeout(()=>{if(!S.coach.exotic)coachShow('exotic','Extra Strike','Out of war energy? Spend Exotic for another front-line push (daily soft cap).');},400);}
+  if(territoryActive()&&!S.coach.territory&&(R.tab==='outposts'||R.tab==='map'))coachShow('territory','Territory','Friendly space boosts outposts & Battle Moon +20%. Outside hurts production and draws more raids.');
+  if(!S.coach.goals&&(R.tab==='more'||R.tab==='station'))coachShow('goals','Goals','Up to 3 short goals refresh as you complete them — small resources and reputation.');
+  if(prestigeReady()&&!S.coach.ngplus&&R.tab==='galaxy')coachShow('ngplus','New Game+','Prestige warps you to a new universe. Keep faction ranks, museum, moon upgrades, and lab perks — gain stacked production.');
+}catch(_){}}
+
+/* ---- UI wiring (after js3) ---- */
+function goalsCard(pn){ensureGoals();const c=el('div','card hl');const body=el('div');
+  live(body,e=>{const list=ensureGoals();setHTML(e,`<div class="title">Goals</div>`+list.map(g=>{const f=clamp((g.prog||0)/Math.max(1,g.need),0,1);return `<div class="goalrow"><div class="grow"><b>${goalLabel(g)}</b><div class="bar" style="margin-top:4px"><div style="width:${(f*100).toFixed(0)}%"></div></div></div><span class="lv">${g.prog||0}/${g.need}</span></div>`;}).join(''));});
+  c.appendChild(body);pn.appendChild(c);}
+function contractsCard(pn){if(!facUnlocked())return;const c=el('div','card');const body=el('div');
+  live(body,e=>{const ct=ensureContracts();const left=Math.max(0,CONTRACT_WEEK-(Date.now()-ct.weekStart));
+    setHTML(e,`<div class="title">Alliance Contracts</div><div class="sub">Weekly set · resets in ${fmtTime(Math.ceil(left/1000))}${ct.bonusClaimed?' · bonus claimed':''}</div>`+
+      ct.missions.map(m=>`<div class="goalrow"><div class="grow">${m.done?'✓ ':''}${m.label}</div><span class="lv">${m.done?'Done':(m.prog||0)+'/'+m.need}</span></div>`).join('')+
+      `<div class="muted" style="margin-top:6px">Clear all three for +40 rep and a territory push.</div>`);});
+  c.appendChild(body);pn.appendChild(c);}
+function prestigeCard(pn){const c=el('div','card hl');
+  live(c,e=>{const L=ngLevel(),u=S.prestige?S.prestige.universe:0,mult=ngProdMult();
+    setHTML(e,`<div class="title">New Game+ ${L?`· Level ${L}`:''}</div>
+      <div class="sub">${L?`Universe ${u} · production ×${mult.toFixed(3)} (softcap)`:'Warp to another universe after a clear gate. Keep faction ranks, museum, Battle Moon upgrades, Research perks.'}</div>
+      <div class="muted" style="margin-top:4px">Gate: beat Father Ship in Galaxy 5, or Galaxy 4 + Father + 2 museum sets. Resets resources, planets, outposts, war; Father required again each loop.</div>`);
+  });
+  const bs=el('div','btns');bs.appendChild(btn('purple',()=>{const b=prestigeBlock();return b||('Prestige → NG+ '+(ngLevel()+1));},null,()=>{confirmBox('New Game+?','Warp to another universe. Resources, planets, outposts and war reset. Faction ranks, museum, Battle Moon upgrades and Research perks are kept.',()=>doPrestige());},()=>!prestigeBlock()));
+  c.appendChild(bs);pn.appendChild(c);}
+function specUI(pi,c){const o=S.outposts[pi];if(!o)return;
+  const wrap=el('div');wrap.style.marginTop='8px';
+  live(wrap,e=>{const sp=o.spec;setHTML(e,`<div class="row" style="font-size:12px"><div class="grow">Specialization ${sp?`<span class="lv" style="background:#2a4a8a">${specLabel(sp)}</span>`:'<span class="muted">None</span>'}</div>
+    <div class="muted">${sp==='mine'?'+25% prod':sp==='fort'?'+35% def · fewer raids':sp==='trade'?'+8% collect':''}</div></div>`);});
+  c.appendChild(wrap);
+  const bs=el('div','btns');
+  for(const sp of['mine','fort','trade']){
+    bs.appendChild(btn('ghost',()=>{const b=specBlock(pi,sp);return b||specLabel(sp);},()=>{const o2=S.outposts[pi];return o2&&o2.spec&&o2.spec!==sp?specRetargetCost(pi):null;},()=>setOutpostSpec(pi,sp),()=>!specBlock(pi,sp)));
+  }
+  c.appendChild(bs);}
+function planetAttackUI(pn,pi){if(!warUnlocked()||!curFac()||pi==null||!P[pi])return;
+  const own=planetOwner(pi);if(+pi!==0&&own===curFac())return;
+  const c=el('div','card warn');
+  live(c,e=>{const o2=planetOwner(pi);const diff=+pi===0?'★★★ Hub':'★★';
+    setHTML(e,`<div class="title">Assault ${P[pi].name}</div>
+      <div class="sub">${+pi===0?'Contested hub — no permanent claim; front push only':(o2?FAC[o2].name+' territory':'Unclaimed')} · difficulty ${diff}</div>
+      <div class="muted">Costs ${planetAttackCostEnergy(pi)} war energy (or Extra Strike exotic). Win seizes this planet${+pi===0?'\'s front':''}.</div>`);});
+  const bs=el('div','btns');
+  bs.appendChild(btn('red',()=>{const b=planetAttackBlock(pi);return b||('Assault (−'+planetAttackCostEnergy(pi)+' energy)');},null,()=>startPlanetAttack(pi,false),()=>!planetAttackBlock(pi)));
+  bs.appendChild(btn('ghost',()=>{const b=planetAttackBlockExotic(pi);return b||('Extra Strike (−'+fmt(exoticStrikeCost())+' exotic)');},()=>({exotic:exoticStrikeCost()}),()=>startPlanetAttack(pi,true),()=>!planetAttackBlockExotic(pi)));
+  c.appendChild(bs);pn.appendChild(c);}
+
+function installV15UI(){
+  if(installV15UI.done)return;installV15UI.done=true;
+  const _pm=pMore;pMore=function(pn){goalsCard(pn);if(facUnlocked())contractsCard(pn);_pm(pn);coachMaybe();};
+  const _pg=pGalaxy;pGalaxy=function(pn){_pg(pn);prestigeCard(pn);coachMaybe();};
+  const _pf=pFactions;pFactions=function(pn){_pf(pn);if(facUnlocked()){pn.appendChild(el('div','h','Alliance Contracts'));contractsCard(pn);}coachMaybe();};
+  const _mor=moonOutpostRow;moonOutpostRow=function(pi,c){_mor(pi,c);specUI(pi,c);};
+  const _pmap=pMap;pMap=function(pn){_pmap(pn);if(warUnlocked()&&R.sel!=null)planetAttackUI(pn,R.sel);coachMaybe();};
+  const _wbc=warBoardCard;warBoardCard=function(pn){_wbc(pn);if(!warUnlocked()||!curFac()||!P)return;
+    const list=el('div','card');list.innerHTML='<div class="title">Target a planet</div><div class="sub">Assault a specific world to seize it for your faction.</div>';
+    const box=el('div');for(let i=0;i<P.length;i++){const own=planetOwner(i);if(i!==0&&own===curFac())continue;
+      const row=el('div','goalrow');row.style.cursor='pointer';row.style.minHeight='34px';
+      row.innerHTML=`<div class="grow"><b>${P[i].name}</b> <span class="muted">${i===0?'Contested hub':(own?FAC[own].name:'?')}</span></div><span class="lv">${i===0?'Hub':'Assault'}</span>`;
+      row.onclick=()=>{R.sel=i;R.tab='map';renderTabs();renderPanel();const p=$('#panel');if(p)p.scrollTop=0;};box.appendChild(row);}
+    list.appendChild(box);pn.appendChild(list);coachMaybe();};
+  const _ut=updTop;updTop=function(){_ut();try{
+    const g=$('#galchip');if(g&&ngLevel()>0)setHTML(g,`<span>Galaxy</span><b>${S.galaxy+1}</b><span>NG+${ngLevel()} · ×${empire().toFixed(2)}</span>`);
+    let chip=$('#goalchip');if(!chip){chip=document.createElement('button');chip.id='goalchip';chip.type='button';chip.setAttribute('aria-label','Goals');const top=$('#top');if(top)top.appendChild(chip);chip.onclick=()=>{R.tab='more';setFS(false);renderTabs();renderPanel();};}
+    const list=ensureGoals();chip.textContent='Goals '+list.filter(x=>(x.prog||0)>0).length+'/'+GOAL_SLOTS;
+  }catch(_){}};
+  const _fr=frame;frame=function(ts){if(R.ngWarp){const now=performance.now();const dt=Math.min(.25,Math.max(0,(now-(frame._lt||now))/1000));frame._lt=now;try{ngWarpFrame(dt);}catch(e){console.error(e);}requestAnimationFrame(frame);return;}_fr(ts);};
+  /* refresh PH exports used by tests */
+  try{if(window.PH){Object.assign(PH,window.__PH15||{});PH.jumpCost=jumpCost;PH.stationRate=stationRate;PH.outRate=outRate;PH.outDefense=outDefense;PH.planetOwner=planetOwner;PH.sfx=sfx;PH.endRaid=endRaid;PH.collect=collect;PH.renderPanel=renderPanel;if(PH.F){PH.F.planetOwner=planetOwner;PH.F.startPlanetAttack=startPlanetAttack;PH.F.startFrontline=startFrontline;}}}catch(_){}
+}
+
+/* boot */
+(function(){
+  const boot=()=>{try{installV15UI();ensureV15();if((S.lastVer||0)<15){if(S.galaxy>=1)setTimeout(()=>toast('Updated! Goals, Alliance Contracts, outpost specializations, targeted planet assaults, pace tuning for Galaxy 4+, and New Game+ with a universe warp.','gold'),11500);S.lastVer=15;save();}
+    if(R.tab)renderPanel();updTop();}catch(e){console.warn('v15 boot',e);}};
+  if(typeof S!=='undefined'&&S&&typeof pMore==='function')boot();
+  else setTimeout(boot,0);
+})();
+
+window.__PH15={
+  jumpCostK,ngLevel,ngProdMult,prestigeReady,prestigeBlock,doPrestige,museumSetsDoneCount,
+  ensureGoals,goalProgress,goalLabel,ensureContracts,contractProgress,
+  setOutpostSpec,specBlock,specLabel,specProdMult,specDefMult,specRaidMult,specRetargetCost,
+  startPlanetAttack,planetAttackBlock,planetAttackBlockExotic,claimPlanet,planetAttackCostEnergy,
+  showResultCard,dismissResult,startNgWarp,ngWarpFrame,coachShow,ensureV15,applyUniverseModifier,installV15UI,
+  PACE_JUMP_SOFT,SPEC_CD,SPEC_MINE,SPEC_FORT_DEF,CONTRACT_WEEK,WARP_SKIP_AFTER,NG_PROD_RATE,NG_PROD_SOFT
+};
+if(window.__PH14)Object.assign(window.__PH14,window.__PH15);
+if(window.__PH13)Object.assign(window.__PH13,window.__PH15);
+if(window.__PH12)Object.assign(window.__PH12,{planetOwner,startPlanetAttack,claimPlanet,ngLevel,doPrestige});
+if(window.PH){Object.assign(PH,window.__PH15);try{PH.jumpCost=jumpCost;PH.planetOwner=planetOwner;}catch(_){}}
+
+console.log('v15 prestige/goals/contracts/specs/targeted-war loaded');
 /* ================= UI ================= */
 let UPD=[];
 function el(tag,cls,html){const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
@@ -3042,7 +3486,8 @@ setTimeout(function hintLater(){if(R.fs||S.tips.fsTip)return;if(!$('#modal').cla
   if(!fresh&&(S.lastVer||5)<11&&S.galaxy>=1)setTimeout(()=>toast('Updated! Massive Fleet Raids (Armada) can escalate from pirate raids — build the Battle Moon defense satellite, fire its Moon Laser, and grab Salvage Haul wreckage.','gold'),7500);
   if(!fresh&&(S.lastVer||5)<12&&S.galaxy>=1)setTimeout(()=>toast('Updated! Faction Wars are live — join front-line battles, watch borders shift, fill the Relic Museum, and dock the Battle Moon at your colony.','gold'),8500);
   if(!fresh&&(S.lastVer||5)<13&&S.galaxy>=1)setTimeout(()=>toast('Updated! Spend Exotic for Extra Strikes when war energy is empty, and faction borders now wash the map Stellaris-style.','gold'),9500);
-  if(!fresh&&(S.lastVer||5)<14&&S.galaxy>=1)setTimeout(()=>toast('Updated! Outposts and the Battle Moon are stronger in your faction territory — and weaker (with more raids) outside it.','gold'),10500);S.lastVer=14;
+  if(!fresh&&(S.lastVer||5)<14&&S.galaxy>=1)setTimeout(()=>toast('Updated! Outposts and the Battle Moon are stronger in your faction territory — and weaker (with more raids) outside it.','gold'),10500);
+  if(!fresh&&(S.lastVer||5)<15&&S.galaxy>=1)setTimeout(()=>toast('Updated! Goals, Alliance Contracts, outpost specializations, targeted planet assaults, pace tuning for Galaxy 4+, and New Game+ with a universe warp.','gold'),11500);S.lastVer=15;
   if(S.galaxy>=1){try{ensureWar();}catch(_){}}
   if(S.defenseGrant){S.defenseGrant=false;setTimeout(()=>toast('New: pirate defenses! You received '+fmt(Math.round(400*pw(1.6,S.galaxy)))+' salvage to arm your station','gold'),1500);}}
 mgInit();$('#abil').addEventListener('click',()=>{useAbility();});const mf=$('#moonfire');if(mf)mf.addEventListener('click',()=>{fireMoonLaser();});if(curFac()==='pirate')ensureTargets();
